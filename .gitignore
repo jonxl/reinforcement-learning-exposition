@@ -1,0 +1,15 @@
+# LaTeX build directories and intermediate files (keep PDFs visible).
+.build/
+*.aux
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.bbl
+*.blg
+*.bcf
+*.run.xml
