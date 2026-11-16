@@ -136,3 +136,16 @@ def test_hoeffding_band_contains_mean_and_is_clipped():
     c = _curves(rng.uniform(0, 0.02, size=(30, 4)))
     lo, hi = c.hoeffding_band(0.05)
     assert np.all(lo >= 0) and np.all(lo <= c.mean()) and np.all(c.mean() <= hi)
+
+
+def test_align_step_hold_on_union_of_checkpoints():
+    from utils.learning_curves import LearningCurves, align
+
+    a = LearningCurves(steps=np.array([0, 10, 20]), gaps=np.array([[1.0, 0.5, 0.2]]), name="a")
+    b = LearningCurves(steps=np.array([0, 15, 30]), gaps=np.array([[1.0, 0.4, 0.1]]), name="b")
+    a2, b2 = align(a, b)
+    assert a2.steps.tolist() == [0, 10, 15, 20]  # union, up to the shorter run
+    assert a2.gaps[0].tolist() == [1.0, 0.5, 0.5, 0.2]  # latest checkpoint at or before N
+    assert b2.gaps[0].tolist() == [1.0, 1.0, 0.4, 0.4]
+    same, other = align(a, a)
+    assert same is a and other is a

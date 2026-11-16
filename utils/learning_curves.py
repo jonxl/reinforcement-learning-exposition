@@ -98,19 +98,75 @@ class LearningCurves:
     def unstable_fraction(self) -> np.ndarray | None:
         return None if self.unstable is None else self.unstable.mean(axis=0)
 
-    def bias_variance(self, K_star, curvature: float) -> dict[str, np.ndarray]:
-        """Split of the expected gap near the optimum: g_bar ~ c [bias^2 + variance] (notes, Obs. 3).
+    def bias_variance(self, K_star, curvature) -> dict[str, np.ndarray]:
+        """Split of the expected gap near the optimum (notes, Observation 3).
 
-        For d-dimensional gains, bias^2 = |E k - K*|^2 and variance = trace Cov k; the single
-        curvature c is then only a rough stand-in for the Hessian (notes, "Limitations").
+        ``curvature`` is c_gamma (scalar case) or the matrix C = H/2, H the Hessian of the gap at K*.
+        With bias b = E k - K* and covariance S of the gains across seeds,
+
+            g_bar ~ E[e'Ce] = b'Cb + tr(C S),
+
+        which is c_gamma (bias^2 + variance) in one dimension. Also returned: the unweighted
+        bias^2 = |b|^2 and variance = tr S.
         """
         if self.gains is None:
             raise ValueError("no gains recorded for this algorithm")
         K_star = np.asarray(K_star, dtype=float).reshape(-1)
-        mean_gain = self.gains.mean(axis=0)  # (n, d)
-        bias2 = ((mean_gain - K_star) ** 2).sum(axis=-1)
-        var = self.gains.var(axis=0, ddof=1).sum(axis=-1) if self.n_seeds > 1 else np.zeros_like(bias2)
-        return {"bias2": bias2, "variance": var, "predicted_gap": curvature * (bias2 + var)}
+        d = K_star.size
+        C = np.atleast_2d(np.asarray(curvature, dtype=float))
+        C = C * np.eye(d) if C.shape == (1, 1) else C
+        b = self.gains.mean(axis=0) - K_star  # (n, d)
+        n = self.gains.shape[1]
+        if self.n_seeds > 1:
+            dev = self.gains - self.gains.mean(axis=0)
+            S = np.einsum("mni,mnj->nij", dev, dev) / (self.n_seeds - 1)
+        else:
+            S = np.zeros((n, d, d))
+        bias_term = np.einsum("ni,ij,nj->n", b, C, b)
+        var_term = np.einsum("ij,nji->n", C, S)
+        return {
+            "bias2": (b**2).sum(axis=-1),
+            "variance": np.trace(S, axis1=1, axis2=2),
+            "bias_term": bias_term,
+            "variance_term": var_term,
+            "predicted_gap": bias_term + var_term,
+        }
+
+    def steps_to_threshold(self, threshold: float) -> np.ndarray:
+        """Per seed, the first checkpoint (in environment steps) with gap <= threshold; inf if never."""
+        hit = self.gaps <= threshold
+        first = np.where(hit.any(axis=1), hit.argmax(axis=1), -1)
+        steps = np.asarray(self.steps, dtype=float)
+        return np.where(first >= 0, steps[np.maximum(first, 0)], np.inf)
+
+    def summary(self, delta: float = 0.05, thresholds=(0.1, 0.01), tail_fraction: float = 0.1) -> dict:
+        """The headline numbers at the final checkpoint, plus floors and sample efficiency."""
+        lo, hi = self.hoeffding_band(delta)
+        q25, q50, q75 = self.quantiles()
+        out = {
+            "name": self.name,
+            "n_seeds": self.n_seeds,
+            "final_step": float(self.steps[-1]),
+            "final_mean_gap": float(self.mean()[-1]),
+            "final_se": float(self.standard_error()[-1]),
+            "final_hoeffding_band": [float(lo[-1]), float(hi[-1])],
+            "hoeffding_half_width": float(concentration.hoeffding_eps(self.n_seeds, delta, self.gaps.shape[1])),
+            "final_median_iqr": [float(q50[-1]), float(q25[-1]), float(q75[-1])],
+            "final_min_max": [float(self.gaps[:, -1].min()), float(self.gaps[:, -1].max())],
+            "floor_estimate": self.floor(tail_fraction),
+        }
+        if self.unstable is not None:
+            out["final_unstable_fraction"] = float(self.unstable[:, -1].mean())
+        out["final_infinite_cost_fraction"] = float((self.gaps[:, -1] >= 1.0).mean())
+        for thr in thresholds:
+            s = self.steps_to_threshold(thr)
+            reached = np.isfinite(s)
+            out[f"reached_gap_{thr}"] = float(reached.mean())
+            out[f"median_steps_to_gap_{thr}"] = float(np.median(s[reached])) if reached.any() else None
+        if self.gains is not None:
+            out["final_mean_gain"] = self.gains[:, -1].mean(axis=0).tolist()
+            out["final_gain_std"] = self.gains[:, -1].std(axis=0, ddof=1).tolist() if self.n_seeds > 1 else None
+        return out
 
     # -- strong law illustration ----------------------------------------------------------------
 
@@ -147,6 +203,34 @@ def power_law_crossing(kappa_x: float, beta_x: float, kappa_y: float, beta_y: fl
 
 
 # -- orderings across seeds (notes, "Ordering across seeds") -------------------------------------
+
+
+def align(a: LearningCurves, b: LearningCurves) -> tuple[LearningCurves, LearningCurves]:
+    """Put two runs on a common step grid so the orderings below compare the same N.
+
+    If the checkpoints already coincide, the runs are returned unchanged. Otherwise the grid is the
+    union of both checkpoint sets up to the shorter run, and each seed's gap at N is that of its
+    latest checkpoint at or before N (the policy one would have if training stopped at N and the
+    last saved policy were used). Nothing is interpolated.
+    """
+    if np.array_equal(a.steps, b.steps):
+        return a, b
+    end = min(a.steps[-1], b.steps[-1])
+    grid = np.union1d(a.steps, b.steps)
+    grid = grid[(grid >= max(a.steps[0], b.steps[0])) & (grid <= end)]
+
+    def hold(c: LearningCurves) -> LearningCurves:
+        idx = np.searchsorted(c.steps, grid, side="right") - 1
+        return LearningCurves(
+            steps=grid,
+            gaps=c.gaps[:, idx],
+            gains=None if c.gains is None else c.gains[:, idx],
+            unstable=None if c.unstable is None else c.unstable[:, idx],
+            name=c.name,
+            meta={**c.meta, "aligned": "step-hold"},
+        )
+
+    return hold(a), hold(b)
 
 
 def band_separated(a: LearningCurves, b: LearningCurves) -> np.ndarray:
