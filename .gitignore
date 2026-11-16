@@ -13,3 +13,12 @@
 *.blg
 *.bcf
 *.run.xml
+
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Experiment outputs (raw arrays are regenerated from configs and seeds)
+results/
