@@ -6,6 +6,7 @@ dependencies = [
     "matplotlib>=3.11.2",
     "numpy>=2.5.5",
     "scipy>=1.18.1",
+    "torch>=2.15.0",
 ]
 
 [dependency-groups]
@@ -16,3 +17,12 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+# PyTorch from the CPU-only index: the networks here are tiny, and the default Linux wheel pulls in CUDA.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }

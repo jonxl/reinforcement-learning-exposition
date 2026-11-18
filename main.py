@@ -2,11 +2,16 @@
 
     uv run main.py baseline --problem lqr --gamma 0.99     exact optimum the agents are scored against
     uv run main.py baseline --problem lqi --gamma 0.99
+    uv run main.py baseline --problem nlqr --problem-set k=2
     uv run main.py budget --eps 0.05 --delta 0.05 --checkpoints 20    seeds needed for a confidence band
 
     uv run main.py crude --algos monte_carlo --problem lqr      small run + every metric and figure
     uv run main.py run --algo monte_carlo --problem lqr --seeds 1000 --set total_steps=2000000
+    uv run main.py crude --algos monte_carlo ppo --problem nlqr --problem-set k=2
     uv run main.py report results/<run_a> results/<run_b> --out results/report_x
+
+Problems (environments) are registered in ``utils.envs.PROBLEMS``; ``--problem-set KEY=VALUE`` sets
+their parameters, e.g. the nonlinearity k of ``nlqr``. Algorithms are registered in ``rollouts.ALGOS``.
 """
 
 from __future__ import annotations
@@ -18,7 +23,7 @@ from pathlib import Path
 import numpy as np
 
 import rollouts
-from utils import baseline, concentration
+from utils import baseline, concentration, envs
 
 
 def cmd_baseline(args: argparse.Namespace) -> None:
@@ -30,6 +35,18 @@ def cmd_baseline(args: argparse.Namespace) -> None:
         print(f"  J* = p                 = {prob.J_star:.6f}")
         print(f"  finite-cost interval   = ({lo:.6f}, {hi:.6f})")
         print(f"  curvature c_gamma      = {baseline.scalar_curvature(args.gamma):.6f}   (g ~ c e^2 near K*)")
+    elif args.problem in ("nlqr", "nlqr_scalar"):
+        prob = envs.make_problem(args.problem, args.gamma, **_parse_overrides(args.problem_set))
+        gaps, unstable = envs.score_gains(prob, np.stack([prob.K_star, np.zeros_like(prob.K_star)]))
+        print(f"Nonlinear benchmark {args.problem}  (k = {prob.k}, x0 = {prob.x0.tolist()}, gamma = {args.gamma})")
+        print(f"  A (linearization)      = {np.round(prob.linear.A, 6).tolist()}")
+        print(f"  B (linearization)      = {prob.linear.B.reshape(-1).tolist()},  open-loop spectral radius "
+              f"{max(abs(np.linalg.eigvals(prob.linear.A))):.4f}")
+        print(f"  P (exact, every k)     = {(np.round(prob.P, 6) + 0.0).tolist()}")
+        print(f"  J* = x0' P x0          = {prob.J_star:.6f}")
+        print(f"  K* of the linearization= {np.round(prob.K_star.reshape(-1), 6).tolist()}")
+        print(f"  gap of u = -K* x       = {gaps[0]:.6f}   (unstable: {bool(unstable[0])})")
+        print(f"  gap of u = 0           = {gaps[1]:.6f}   (unstable: {bool(unstable[1])})")
     else:
         prob = baseline.scalar_lqi(gamma=args.gamma)
         x_ss, u_ss = prob.equilibrium
@@ -78,17 +95,18 @@ def _report(run_dirs: list[Path], out: Path, delta: float) -> None:
     for d in run_dirs:
         arrays, meta = rollouts.load(d)
         runs.append((rollouts.to_curves(arrays, meta), arrays, meta))
-    problems = {meta["problem"] for _, _, meta in runs}
+    problems = {(meta["problem"], meta["gamma"], tuple(sorted(meta.get("problem_params", {}).items()))) for _, _, meta in runs}
     if len(problems) != 1:
-        raise SystemExit(f"report needs runs on one problem, got {sorted(problems)}")
-    graphs.make_report(runs, out, delta)
+        raise SystemExit(f"report needs runs on one problem with the same parameters, got {sorted(problems)}")
+    floor, _ = envs.best_linear_gap(rollouts.problem_of(runs[0][2]))
+    graphs.make_report(runs, out, delta, linear_floor=floor if floor > 0 else None)
     print((out / "summary.md").read_text())
     print(f"figures and summary written to {out}/")
 
 
 def cmd_run(args: argparse.Namespace) -> None:
     out = rollouts.run(args.algo, args.problem, args.seeds, args.master_seed, args.gamma, args.workers,
-                       _parse_overrides(args.set), tag=args.tag)
+                       _parse_overrides(args.set), tag=args.tag, problem_params=_parse_overrides(args.problem_set))
     print(f"saved {out}/")
 
 
@@ -106,7 +124,7 @@ def cmd_crude(args: argparse.Namespace) -> None:
     for algo in args.algos:
         print(f"running {algo} on {args.problem}: {args.seeds} seeds ...", flush=True)
         d = rollouts.run(algo, args.problem, args.seeds, args.master_seed, args.gamma, args.workers,
-                         overrides, out_dir=root / algo)
+                         overrides, out_dir=root / algo, problem_params=_parse_overrides(args.problem_set))
         run_dirs.append(d)
     _report(run_dirs, root / "report", args.delta)
 
@@ -115,9 +133,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p = sub.add_parser("baseline", help="print the exact optimum of the scalar LQR or LQI problem")
-    p.add_argument("--problem", choices=["lqr", "lqi"], default="lqr")
+    p = sub.add_parser("baseline", help="print the exact optimum of a problem")
+    p.add_argument("--problem", choices=list(rollouts.PROBLEMS), default="lqr")
     p.add_argument("--gamma", type=float, default=0.99)
+    p.add_argument("--problem-set", nargs="*", default=[], metavar="KEY=VALUE", help="problem parameters")
     p.set_defaults(func=cmd_baseline)
 
     p = sub.add_parser("budget", help="number of seeds for a confidence band of given width and risk")
@@ -137,6 +156,8 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--master-seed", type=int, default=0)
         p.add_argument("--workers", type=int, default=None, help="processes (default: one per core, up to #seeds)")
         p.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE", help="algorithm config overrides")
+        p.add_argument("--problem-set", nargs="*", default=[], metavar="KEY=VALUE",
+                       help="problem parameters, e.g. k=3 for nlqr")
 
     p = sub.add_parser("run", help="run one algorithm on many seeds and save the learning curves")
     add_run_args(p, multi=False)

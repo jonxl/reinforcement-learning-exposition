@@ -1,0 +1,174 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue]{hyperref}
+
+\graphicspath{{figures/}}
+
+\title{Second Experiment: Linear and Neural PPO and Monte Carlo Control on a Nonlinear Problem with an Exact Optimum}
+\author{Jon Legasa}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section*{Summary}
+
+%% RESULTS-SUMMARY
+
+%----------------------------------------------------------------------------------------------------
+\section{Setup}
+\label{sec:setup}
+
+This is the experiment of the first run (\emph{First Experiment: PPO and Monte Carlo Control
+Against the Exact LQR Optimum}) repeated on the nonlinear benchmark of the notes \emph{Measuring
+Reinforcement Learning Against the Exact LQR Optimum}, Section ``A nonlinear benchmark with an
+exact solution''. Everything not stated here is as in the first run.
+
+\paragraph{Problem.} Two states, one control, $Q = I$, $R = 1$, $\gamma = 0.99$:
+\begin{gather*}
+  x_1^+ = 0.5\, x_1 + 0.3571\, x_2, \qquad
+  x_2^+ = s(x_1)\, \big(0.9193\, x_1 - 0.6436\, x_2\big) + \beta(x_1)\, u, \\
+  \beta(x_1) = \frac{2 + \cos(k x_1)}{3}, \qquad
+  s(x_1) = \sqrt{\frac{1 + \gamma p_2\, \beta(x_1)^2}{1 + \gamma p_2}}, \qquad p_2 = 1.5, \qquad k = 2, \\
+  c(x, u) = x_1^2 + x_2^2 + u^2, \qquad x_0 = (1, -1) .
+\end{gather*}
+The control acts with a strength $\beta$ between $1/3$ and $1$ that depends on $x_1$. The agents
+see the state and the reward $r_t = -c(x_t, u_t)$, never the equations. There is no early
+termination and the dynamics are never clipped.
+
+\paragraph{Baseline.} The cost-to-go of this nonlinear problem is exactly the Riccati solution of
+its linearization at the origin, $V(x) = x^\top P x$ with $P = \mathrm{diag}(2, 1.5)$, so
+\[
+  J^* = x_0^\top P x_0 = 3.5 ,
+\]
+and the optimal policy is
+\[
+  u^*(x) = -\frac{\gamma p_2\, \beta(x_1)\, s(x_1)}{1 + \gamma p_2\, \beta(x_1)^2}\,
+  \big(0.9193\, x_1 - 0.6436\, x_2\big),
+\]
+which is not linear in $x$. Three reference policies place the algorithms:
+\begin{center}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Policy & Gain $K$ in $u = -Kx$ & Gap \\
+    \midrule
+    no control, $u = 0$ & $(0, 0)$ & $0.416$ \\
+    LQR gain of the linearization & $(0.5493, -0.3846)$ & $0.0308$ \\
+    best linear policy & $(0.3717, -0.3286)$ & $0.00436$ \\
+    optimal policy $u^*$ & not linear & $0$ \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+The best linear gain is found by a numerical search over $K$ (\texttt{envs.best\_linear\_gap}). Its
+gap, $0.00436$, is a floor for every policy of the form $u = -Kx$: no amount of training lets a
+linear policy go below it. A table or a neural network is not bound by it. This floor is the
+question of this experiment.
+
+\paragraph{Score.} At each checkpoint the current deterministic policy of every seed is scored by its
+gap $g = 1 - J^*/J \in [0, 1]$, with $g = 1$ when the cost is infinite. Unlike the first run, every
+algorithm, the linear PPO included, is scored by a deterministic rollout of 5000 steps from $x_0$
+($\gamma^{5000} \approx 10^{-22}$): on a nonlinear system there is no closed form for the cost of a
+gain. Linear PPO is scored by its mean action $u = -Kx$, neural PPO by its mean action
+$u = \mu_\theta(x)$, Monte Carlo control by its greedy table. For the table and the network, the
+\emph{effective gain} is the discounted least-squares fit $u \approx -Kx$ along that rollout.
+
+\paragraph{Instability.} For every algorithm a run is counted as unstable when its evaluation rollout
+diverges or ends farther from zero than it started (over its last 100 steps). The eigenvalue test of
+the first run does not apply to a nonlinear closed loop.
+
+\paragraph{Seeds and checkpoints.} All three algorithms use the same $M = 40$ evaluation seeds as the
+first run (master seed 0), and every random number of a seed comes from its own generator. Monte
+Carlo control and linear PPO are checkpointed every $5 \times 10^4$ steps. Neural PPO collects
+2048 steps per update, so its 21 checkpoints fall on multiples of 2048 steps, about every
+$4.9 \times 10^4$ steps. Orderings involving neural PPO compare each seed's latest checkpoint at or
+before a common step, without interpolation.
+
+\paragraph{Confidence bands and figures.} The bands are 95\% Hoeffding bands, simultaneous over 21
+checkpoints, of half-width $\varepsilon = 0.290$, as in the first run. Every gap axis is logarithmic;
+gaps at or below $10^{-8}$ are drawn on the dashed optimum line, and the best linear policy is drawn
+as a dash-dotted line at $0.00436$.
+
+%----------------------------------------------------------------------------------------------------
+\section{Algorithms}
+\label{sec:algorithms}
+
+\subsection{Monte Carlo control}
+
+As in the first run (Sutton and Barto, Section 5.4), with the same settings. With two states the
+table has $41^2 = 1681$ state cells instead of 41, each with 61 actions. A table can hold any
+feedback law up to its resolution, so it is not bound by the linear floor; its own floor, set by the
+bins and the action grid, has not been computed.
+
+\subsection{PPO with a linear-Gaussian policy}
+
+As in the first run, with the same settings: the policy is $\mathcal{N}(-Kx, \sigma^2)$ with
+$K \in \mathbb{R}^{1 \times 2}$, the value function is quadratic in $x$, and the gradients are written
+out by hand. It is the reference for the floor: its best possible gap is $0.00436$.
+
+\subsection{PPO with neural networks}
+
+The same algorithm with the policy mean and the value function given by neural networks, following
+the continuous-control setup of the PPO paper (Schulman et al.\ 2017, Section 6.1 and Table 3):
+\[
+  \pi_\theta(u \mid x) = \mathcal{N}\big(\mu_\theta(x),\ \sigma^2\big), \qquad V_\phi(x),
+\]
+with $\mu_\theta$ and $V_\phi$ two separate multilayer perceptrons and $\log \sigma$ a learned number
+that does not depend on the state. The mean can represent a nonlinear feedback law, so this policy is
+not bound by the linear floor. Gradients are computed by PyTorch. Each seed has its own networks and
+its own random numbers, so a seed's run does not depend on the batch (this is tested).
+
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Setting & Value & Source \\
+    \midrule
+    hidden layers & 2 of 64 units, tanh & paper \\
+    policy output & mean of a Gaussian; $\sigma$ learned, state-independent & paper \\
+    shared parameters & none (separate policy and value networks) & paper \\
+    entropy weight $c_2$ & 0 & paper \\
+    steps per update $T$ & 2048 (one environment) & paper \\
+    epochs & 10 & paper \\
+    minibatch size & 64 (32 minibatches per epoch) & paper \\
+    Adam stepsize & $3 \times 10^{-4}$, constant & paper \\
+    discount $\gamma$, GAE $\lambda$ & 0.99, 0.95 & paper \\
+    clip $\varepsilon$ & 0.2 & paper (best value of their search) \\
+    training length & $10^6$ steps & paper \\
+    \midrule
+    value weight $c_1$ & 0.5 & ours (the paper: ``irrelevant'' without sharing) \\
+    initial $\sigma$ & 0.5 & ours (not stated) \\
+    initialization & orthogonal; policy output layer scaled by 0.01 & ours (not stated) \\
+    gradient clipping & norm 0.5 per seed, policy and value separately & ours (not stated) \\
+    advantage normalization & per minibatch & ours (not stated) \\
+    observation and reward scaling & none & ours (not stated) \\
+    \bottomrule
+  \end{tabular}
+  \caption{Neural PPO settings: what the paper states, and what it leaves open.}
+\end{table}
+
+The paper states that ``each of $N$ (parallel) actors collect $T$ timesteps'' but does not give $N$
+for this benchmark; one environment collecting $T = 2048$ steps is our reading. The output layer of
+the policy is scaled down so that the untrained policy applies controls close to zero; the system is
+stable without control, so no run diverges at the start.
+
+%% RESULTS-SECTIONS
+
+%----------------------------------------------------------------------------------------------------
+\section{Reproducing}
+
+From the repository root:
+\begin{verbatim}
+uv run main.py baseline --problem nlqr --problem-set k=2
+uv run main.py crude --algos monte_carlo ppo_linear ppo --problem nlqr --problem-set k=2
+\end{verbatim}
+%% RUN-DIRECTORY
+The figures in \texttt{figures/} are copied from that run's \texttt{report/} directory.
+
+\end{document}

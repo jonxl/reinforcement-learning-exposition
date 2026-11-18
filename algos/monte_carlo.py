@@ -22,8 +22,6 @@ from dataclasses import asdict, dataclass
 import numpy as np
 
 from utils import envs
-from utils.baseline import LQRProblem
-from utils.control import gap as gap_fn
 from utils.seeds import rng_for
 
 NAME = "monte_carlo"
@@ -85,17 +83,17 @@ class Table:
         return q.argmax(axis=1)
 
 
-def train(problem: LQRProblem, seeds: np.ndarray, cfg: Config) -> dict:
+def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
     """Train one table per seed; return checkpoints and per-seed metrics.
 
-    ``problem`` is the evaluator's LQRProblem (for LQI, ``LQIProblem.augmented``). The algorithm
-    uses it only through the environment; J* and the gap are computed for scoring.
+    ``problem`` is any problem of ``utils.envs``. The algorithm uses it only through the
+    environment; J* and the gap are computed for scoring.
     """
     if problem.n_control != 1:
         raise ValueError("the action grid is scalar")
     M = len(seeds)
     rngs = [rng_for(s) for s in seeds]
-    env = envs.LinearQuadraticEnv(problem, M)
+    env = envs.Env(problem, M)
     table = Table(cfg, problem.n_state, M)
     nA, T, gamma = table.n_actions, cfg.horizon, problem.gamma
     # random tie-breaking among equal Q-values: a fixed tiny preference per seed, from its own stream
@@ -109,17 +107,11 @@ def train(problem: LQRProblem, seeds: np.ndarray, cfg: Config) -> dict:
         def greedy_policy(obs):
             return table.actions[table.greedy(table.index(obs), tie_pref)][:, None]
 
-        ev = env.evaluate(greedy_policy, cfg.eval_horizon)
-        w = gamma ** np.arange(cfg.eval_horizon)
-        K_eff = envs.effective_gain(ev["states"], ev["controls"], w)  # (M, 1, n)
-        late = np.abs(ev["states"][-100:]).max(axis=(0, 2))
+        s = envs.score_policy(problem, greedy_policy, M, cfg.eval_horizon)
         out["steps"].append(episode * T)
-        out["gaps"].append(gap_fn(ev["J"], problem.J_star))
-        out["gains"].append(K_eff.reshape(M, -1))
-        out["unstable"].append(ev["diverged"] | (late > np.abs(problem.x0).max() + 1e-12))
+        for key in ("gaps", "gains", "unstable", "final_abs_state", "diverged"):
+            out[key].append(s[key])
         out["visited_frac"].append((table.N.sum(axis=2) > 0).mean(axis=1))
-        out["final_abs_state"].append(np.abs(ev["final_state"]).max(axis=1))
-        out["diverged"].append(ev["diverged"])
 
     score(0)
     s_buf = np.empty((T, M), dtype=np.int64)

@@ -2,9 +2,11 @@
 
 An algorithm module (``algos.<name>``) only knows how to train one batch of seeds:
 
-    train(problem: LQRProblem, seeds: np.ndarray, cfg: Config) -> dict of per-seed arrays
+    train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict of per-seed arrays
 
-with arrays shaped (n_seeds, n_checkpoints, ...) and a shared ``steps`` axis. Everything about
+with arrays shaped (n_seeds, n_checkpoints, ...) and a shared ``steps`` axis. The problem comes from
+the registry in ``utils.envs`` by (name, gamma, params), so any algorithm runs on any environment and
+the three values saved with a run are enough to rebuild its environment. Everything about
 *running* lives here: drawing evaluation seeds, splitting them into chunks, running chunks in
 parallel processes (processes, not threads: the work is many small numpy calls, which the GIL
 would serialize), stitching the per-seed arrays back together, and saving them with enough
@@ -27,13 +29,13 @@ from pathlib import Path
 
 import numpy as np
 
-from utils import baseline, seeds
+from utils import envs, seeds
 from utils.learning_curves import LearningCurves
 
 RESULTS_DIR = Path("results")
 
-ALGOS = {"monte_carlo": "algos.monte_carlo", "ppo": "algos.ppo"}
-PROBLEMS = ("lqr", "lqi")
+ALGOS = {"monte_carlo": "algos.monte_carlo", "ppo": "algos.ppo", "ppo_linear": "algos.ppo_linear"}
+PROBLEMS = tuple(envs.PROBLEMS)
 
 
 def get_algo(name: str):
@@ -42,13 +44,9 @@ def get_algo(name: str):
     return import_module(ALGOS[name])
 
 
-def make_problem(name: str, gamma: float) -> baseline.LQRProblem:
-    """The LQR problem the agent's environment simulates (for LQI: the augmented deviation system)."""
-    if name == "lqr":
-        return baseline.scalar_lqr(gamma=gamma)
-    if name == "lqi":
-        return baseline.scalar_lqi(gamma=gamma).augmented
-    raise KeyError(f"unknown problem {name!r}; known: {PROBLEMS}")
+def problem_of(meta: dict) -> envs.Problem:
+    """Rebuild the problem of a saved run from its metadata."""
+    return envs.make_problem(meta["problem"], meta["gamma"], **meta.get("problem_params", {}))
 
 
 def make_config(algo, overrides: dict | None):
@@ -62,9 +60,9 @@ def make_config(algo, overrides: dict | None):
     return cfg
 
 
-def _run_chunk(algo_name: str, problem_name: str, gamma: float, chunk: np.ndarray, cfg) -> dict:
+def _run_chunk(algo_name: str, problem_name: str, gamma: float, problem_params: dict, chunk: np.ndarray, cfg) -> dict:
     algo = get_algo(algo_name)
-    return algo.train(make_problem(problem_name, gamma), chunk, cfg)
+    return algo.train(envs.make_problem(problem_name, gamma, **problem_params), chunk, cfg)
 
 
 def run(
@@ -77,21 +75,23 @@ def run(
     overrides: dict | None = None,
     out_dir: Path | None = None,
     tag: str = "",
+    problem_params: dict | None = None,
 ) -> Path:
     """Run ``n_seeds`` evaluation seeds of one algorithm on one problem and save the results."""
     algo = get_algo(algo_name)
     cfg = make_config(algo, overrides)
-    problem = make_problem(problem_name, gamma)
+    problem_params = dict(problem_params or {})
+    problem = envs.make_problem(problem_name, gamma, **problem_params)
     eval_seeds = seeds.split_seeds(n_tune=0, n_eval=n_seeds, master_seed=master_seed).eval
 
     workers = workers or min(os.cpu_count() or 1, n_seeds)
     chunks = [c for c in np.array_split(eval_seeds, workers) if len(c)]
     t0 = time.perf_counter()
     if len(chunks) == 1:
-        parts = [_run_chunk(algo_name, problem_name, gamma, chunks[0], cfg)]
+        parts = [_run_chunk(algo_name, problem_name, gamma, problem_params, chunks[0], cfg)]
     else:
         with ProcessPoolExecutor(max_workers=len(chunks)) as pool:
-            futures = [pool.submit(_run_chunk, algo_name, problem_name, gamma, c, cfg) for c in chunks]
+            futures = [pool.submit(_run_chunk, algo_name, problem_name, gamma, problem_params, c, cfg) for c in chunks]
             parts = [f.result() for f in futures]
     wall = time.perf_counter() - t0
 
@@ -104,6 +104,7 @@ def run(
     meta = {
         "algo": algo_name,
         "problem": problem_name,
+        "problem_params": problem_params,
         "gamma": gamma,
         "n_seeds": n_seeds,
         "master_seed": master_seed,
@@ -111,7 +112,9 @@ def run(
         "wall_seconds": wall,
         "J_star": problem.J_star,
         "K_star": problem.K_star.reshape(-1).tolist(),
-        "curvature": (0.5 * problem.gap_hessian()).tolist(),
+        # K* is the optimum only where the optimal policy is a linear gain; the curvature of the gap
+        # at K* (bias-variance split) exists only there. Elsewhere K* is the gain of the linearization.
+        "curvature": (0.5 * problem.gap_hessian()).tolist() if hasattr(problem, "gap_hessian") else None,
         "created": datetime.now().isoformat(timespec="seconds"),
         **scalars,
     }

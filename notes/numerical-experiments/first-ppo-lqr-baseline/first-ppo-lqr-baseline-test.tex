@@ -211,6 +211,11 @@ ordering holds in every sense.
 \section{Figures}
 \label{sec:figures}
 
+Every gap axis is logarithmic, the standard fixed in \texttt{utils/graphs.py}: the gap lies in
+$[0, 1]$ and the differences that matter are near zero, where a linear axis shows nothing. A
+logarithmic axis cannot show zero, so gaps at or below $10^{-8}$, including an exact optimum, are
+drawn on the dashed floor line at $10^{-8}$; runs with infinite cost are at gap 1.
+
 \subsection{Both algorithms}
 
 \begin{figure}[H]
@@ -218,25 +223,18 @@ ordering holds in every sense.
   \includegraphics[width=0.85\textwidth]{learning_curves.png}
   \caption{\textbf{Learning curves.} The mean gap $\hat g(N)$ over the 40 seeds of each algorithm
     against environment steps, with the shaded 95\% Hoeffding band, simultaneous over the 21
-    checkpoints (half-width 0.29). The dashed line at zero is the optimum. PPO falls from 0.98 to
-    below 0.01 within $10^5$ steps; Monte Carlo control falls to about 0.8 by $1.5 \times 10^5$
-    steps and then stays between 0.72 and 0.80. The two bands separate from the first checkpoint
-    on. The PPO band reaches up to 0.29 only because Hoeffding uses nothing but $g \in [0, 1]$; its
-    seeds are far more concentrated than that (Figure~\ref{fig:ppo-runs}).}
+    checkpoints (half-width 0.29). PPO falls from 0.98 to below 0.01 within $10^5$ steps; Monte
+    Carlo control falls to about 0.8 by $1.5 \times 10^5$ steps and then stays between 0.72 and
+    0.80, within a factor 1.4 of gap 1 throughout. PPO's mean gap reaches about
+    $1.6 \times 10^{-3}$ at $1.5 \times 10^5$ steps, then rises to about $5 \times 10^{-3}$ around
+    $4 \times 10^5$ steps and drifts back down to $2.6 \times 10^{-3}$. It does not keep
+    decreasing: the exploration noise $\sigma$ has collapsed, so the gains stop moving
+    (Section~\ref{sec:observations}). The two bands separate from the first checkpoint on. The
+    Hoeffding band has the same half-width at every checkpoint because it uses nothing but
+    $g \in [0, 1]$; for PPO it is far wider than the mean, so its lower edge is zero and on this
+    axis it runs down to the floor. The PPO seeds are far more concentrated than that
+    (Figure~\ref{fig:ppo-runs}).}
   \label{fig:curves}
-\end{figure}
-
-\begin{figure}[H]
-  \centering
-  \includegraphics[width=0.85\textwidth]{learning_curves_log.png}
-  \caption{\textbf{Learning curves, logarithmic gap axis.} The same curves on a symmetric-log axis
-    (linear near zero), to show what the linear axis hides near the optimum. PPO's mean gap
-    reaches about $1.6 \times 10^{-3}$ at $1.5 \times 10^5$ steps, then rises to about
-    $5 \times 10^{-3}$ around $4 \times 10^5$ steps and drifts back down to $2.6 \times 10^{-3}$.
-    It does not keep decreasing: the exploration noise $\sigma$ has collapsed, so the gains stop
-    moving (Section~\ref{sec:observations}). Monte Carlo control stays within a factor 1.4 of
-    gap 1 throughout.}
-  \label{fig:curves-log}
 \end{figure}
 
 \begin{figure}[H]
@@ -244,8 +242,9 @@ ordering holds in every sense.
   \includegraphics[width=0.85\textwidth]{final_gap_ecdf.png}
   \caption{\textbf{Distribution of the final gap across seeds.} Empirical cumulative distribution
     of $g(\omega, 10^6)$: the height at gap $x$ is the fraction of seeds with final gap at most
-    $x$. All PPO seeds lie below 0.021; the Monte Carlo seeds spread from 0.27 to 0.98, with half
-    of them above 0.79. The two distributions do not overlap, which is band separation at the
+    $x$, with the gap on the logarithmic axis. The PPO seeds spread from $5 \times 10^{-6}$ to
+    0.021, with half of them below $1.7 \times 10^{-3}$; the Monte Carlo seeds spread from 0.27 to
+    0.98, with half of them above 0.79. The two distributions do not overlap, which is band separation at the
     final checkpoint.}
   \label{fig:ecdf}
 \end{figure}
@@ -268,9 +267,11 @@ ordering holds in every sense.
   \centering
   \includegraphics[width=0.85\textwidth]{ppo_runs.png}
   \caption{\textbf{Individual PPO runs.} One faint line per seed, the mean in bold, and the minimum
-    and maximum over seeds dotted. The 40 runs are almost indistinguishable: all of them drop below
-    gap 0.1 by $5 \times 10^4$ steps, and the worst seed stays below 0.04 after that. This is
-    the envelope used for band separation.}
+    and maximum over seeds dotted. All 40 runs drop below gap 0.1 by $5 \times 10^4$ steps, and the
+    worst seed stays below 0.05 after that. Below that level the seeds differ by orders of
+    magnitude, from a few $10^{-2}$ down to below $10^{-7}$ at single checkpoints, and a seed's
+    gap moves up and down from one checkpoint to the next; the mean is set by the largest seeds.
+    This is the envelope used for band separation.}
   \label{fig:ppo-runs}
 \end{figure}
 
@@ -291,8 +292,8 @@ ordering holds in every sense.
   \caption{\textbf{PPO: bias and variance of the gain against the gap.} The measured mean gap
     (solid) and the near-optimum prediction of the notes,
     $\bar g \approx c_\gamma\,(\text{bias}^2 + \text{variance})$ (dashed), with its bias term
-    $c_\gamma (\bar k - K^*)^2$ (dash-dot) and variance term $c_\gamma s_k^2$ (dotted), on a
-    symmetric-log axis. After the first $10^5$ steps the prediction and the measurement coincide.
+    $c_\gamma (\bar k - K^*)^2$ (dash-dot) and variance term $c_\gamma s_k^2$ (dotted), on the
+    logarithmic gap axis. After the first $10^5$ steps the prediction and the measurement coincide.
     Early on the gap is bias (the gains have not reached $K^*$); from about $1.5 \times 10^5$ steps
     the variance term dominates by one to two orders of magnitude: the remaining gap is almost
     entirely spread across seeds, not a systematic error.}
@@ -304,9 +305,9 @@ ordering holds in every sense.
   \includegraphics[width=0.85\textwidth]{ppo_running_means.png}
   \caption{\textbf{PPO: running mean over seeds (strong law of large numbers).} The final gaps are
     averaged over the first $1, 2, \dots, 40$ seeds, in 20 random orders of the seeds; each line
-    is one sample path of the estimator $\hat g$ as seeds are added. The dashed line is the mean
-    over all 40, and the dotted line is the Hoeffding half-width $\varepsilon(M)$ around it (cut
-    at 0 and 1). The paths are already flat at about 0.003 after a few seeds, far inside the
+    is one sample path of the estimator $\hat g$ as seeds are added. The solid line is the mean
+    over all 40, and the dotted line is the Hoeffding half-width $\varepsilon(M)$ above it; the
+    lower edge of the envelope is zero, on the floor line. The paths are already flat at about 0.003 after a few seeds, far inside the
     Hoeffding envelope, because the PPO gaps vary much less than the worst case
     $\mathrm{Var} \le 1/4$ that Hoeffding allows for.}
   \label{fig:ppo-running}
@@ -420,7 +421,7 @@ $\bar g \approx c_\gamma(\text{bias}^2 + \text{variance})$ is accurate to about 
 From the repository root:
 \begin{verbatim}
 uv run main.py baseline --problem lqr --gamma 0.99
-uv run main.py crude --algos monte_carlo ppo --problem lqr
+uv run main.py crude --algos monte_carlo ppo_linear --problem lqr
 \end{verbatim}
 The run reported here is \texttt{results/crude\_20261116-004618\_lqr/}, with master seed 0, 40 seeds
 per algorithm and 20 worker processes; a seed's result does not depend on the number of workers.

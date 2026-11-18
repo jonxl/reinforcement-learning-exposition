@@ -861,6 +861,180 @@ quarter in Chebyshev's case:
 \end{itemize}
 
 %----------------------------------------------------------------------------------------------------
+\section{A nonlinear benchmark with an exact solution}
+\label{sec:nlqr}
+
+The LQR baseline is exact because its Bellman equation reduces to the Riccati equation. For a
+nonlinear system the Bellman equation has no closed-form solution in general, so there is no $J^*$
+and no gap. This section builds the simplest nonlinear problem we found in which the solution stays
+exact: an LQR problem is bent so that the Riccati matrix of the linear problem is still the
+cost-to-go of the nonlinear one. Everything stays in discrete time with the same discount, so $J^*$
+is the true optimum of the very problem the agents are run on.
+
+\paragraph{The linear starting point.} Take an LQR problem of Section~\ref{sec:problem} with $n$
+states and one control, $R = r$, with two properties. The control enters the last state only, and
+the Riccati matrix does not couple the last state to the others:
+\[
+  B = b\, e_n, \qquad P e_n = p\, e_n ,
+\]
+where $e_n$ is the last unit vector. A diagonal $P$ is the simplest case, and every scalar problem
+qualifies. Write $y = A x$ for the next state of the uncontrolled linear system and $y_n$ for its
+last coordinate.
+
+\paragraph{The nonlinear system.} Replace the constant input gain $b$ by a gain that depends on the
+first state, and rescale the last row of the drift:
+\begin{gather*}
+  x^+_i = y_i \quad (i < n), \qquad x^+_n = s(x)\, y_n + \beta(x)\, u, \\
+  \beta(x) = b\, \frac{2 + \cos(k x_1)}{3}, \qquad
+  s(x) = \sqrt{\frac{r + \gamma p\, \beta(x)^2}{r + \gamma p\, b^2}} .
+\end{gather*}
+The stage cost $x^\top Q x + r u^2$ and the discount are unchanged. The gain $\beta$ moves between
+$b/3$ and $b$ and never vanishes, so the control always acts. At $x_1 = 0$ we have $\beta = b$ and
+$s = 1$: the linearization at the origin is the linear problem. The number $k \ge 0$ sets how fast
+the gain varies; at $k = 0$ the system is the linear problem exactly.
+
+\paragraph{The cost-to-go is still $x^\top P x$.} Substitute $V(x) = x^\top P x$ into the Bellman
+equation of the nonlinear system. Because $P$ does not couple the last state to the others, the
+next-state term splits into a part without the control and a square:
+\[
+  x^{+\top} P x^+ = \sum_{i, j < n} P_{ij}\, y_i y_j + p\, \big(s\, y_n + \beta u\big)^2 .
+\]
+This is where the structure of $P$ matters: with a cross term between $x_n$ and another state, the
+control would also multiply the other coordinates of $y$ and the steps below would not close. The
+control appears only in $r u^2 + \gamma p (s y_n + \beta u)^2$, a convex quadratic, minimized at
+\[
+  u^* = -\frac{\gamma p\, \beta\, s\, y_n}{r + \gamma p\, \beta^2},
+  \qquad
+  \min_u \Big[ r u^2 + \gamma p\, (s y_n + \beta u)^2 \Big]
+  = \frac{\gamma p\, r\, s^2}{r + \gamma p\, \beta^2}\; y_n^2
+  = \frac{\gamma p\, r}{r + \gamma p\, b^2}\; y_n^2 .
+\]
+The last equality is the definition of $s$: the scale is chosen so that the minimized term does not
+see the nonlinearity. The minimized bracket of the Bellman equation is therefore
+\[
+  x^\top Q x + \gamma \sum_{i, j < n} P_{ij}\, y_i y_j + \frac{\gamma p\, r}{r + \gamma p\, b^2}\; y_n^2 ,
+\]
+which is the minimized bracket of the linear problem ($\beta = b$, $s = 1$), and that equals
+$x^\top P x$ by the Riccati equation of Section~\ref{sec:riccati}. So $V(x) = x^\top P x$ satisfies
+the Bellman equation of the nonlinear problem, for every $k$.
+
+\paragraph{It is the optimum.} Assume $Q \succ 0$. The Bellman equation says that for every state
+and control $V(x) \le c(x, u) + \gamma V(x^+)$, with equality at $u^*$. Applying it along the
+trajectory of any policy $\pi$ for $T$ steps,
+\[
+  V(x_0) \le \sum_{t=0}^{T-1} \gamma^t c(x_t, u_t) + \gamma^T V(x_T) .
+\]
+If $J(\pi)$ is finite, then $\gamma^t x_t^\top Q x_t \to 0$, hence $\gamma^T V(x_T) \to 0$, and the
+limit gives $V(x_0) \le J(\pi)$. Under $u^*$ the inequality is an equality and $V \ge 0$, so the
+partial sums of the cost never exceed $V(x_0)$, and $J(u^*) \le V(x_0)$. Together:
+\[
+  J^* = x_0^\top P x_0, \qquad
+  u^*(x) = -\frac{\gamma p\, \beta(x)\, s(x)}{r + \gamma p\, \beta(x)^2}\; (A x)_n .
+\]
+The optimal cost is the same number as for the linear problem. The optimal policy is not: it agrees
+with $u = -K^* x$ where $x_1 = 0$ and differs elsewhere, so no linear gain is optimal when $k > 0$.
+
+\paragraph{The instance.} Two states, $Q = I$, $R = 1$, $b = 1$, and a diagonal Riccati matrix chosen
+in advance, $P = \mathrm{diag}(p_1, p_2)$. With $a_1^\top$, $a_2^\top$ the rows of $A$, the Riccati
+equation for a diagonal $P$ and $B = b\, e_2$ reads
+\[
+  \mathrm{diag}(p_1 - 1,\ p_2 - 1) = \gamma p_1\, a_1 a_1^\top
+  + \frac{\gamma p_2}{1 + \gamma p_2 b^2}\; a_2 a_2^\top ,
+\]
+so $A$ is found by choosing $a_{11}$, taking $a_{12} > 0$ from
+$a_{11}^2/(p_1 - 1) + a_{12}^2/(p_2 - 1) = 1/(\gamma p_1)$, which makes the left side minus the first
+term a matrix of rank one, and reading $a_2$ off it. The matrix $A$ depends on $\gamma$. With
+$p_1 = 2$, $p_2 = 3/2$, $a_{11} = 1/2$ and $\gamma = 0.99$:
+\begin{gather*}
+  A = \begin{pmatrix} 0.5 & 0.3571 \\ 0.9193 & -0.6436 \end{pmatrix}, \qquad
+  B = \begin{pmatrix} 0 \\ 1 \end{pmatrix}, \qquad
+  P = \begin{pmatrix} 2 & 0 \\ 0 & 1.5 \end{pmatrix}, \qquad
+  K^* = \begin{pmatrix} 0.5493 & -0.3846 \end{pmatrix}, \\
+  x_0 = (1, -1), \qquad J^* = 2 x_{0,1}^2 + 1.5\, x_{0,2}^2 = 3.5 .
+\end{gather*}
+Written out, the system is
+\[
+  x_1^+ = 0.5\, x_1 + 0.3571\, x_2, \qquad
+  x_2^+ = s(x_1)\, \big(0.9193\, x_1 - 0.6436\, x_2\big) + \beta(x_1)\, u .
+\]
+The spectral radius of $A$ is $0.88$, so the uncontrolled system is stable. This is deliberate: the
+environment never clips the state or ends an episode early, and an untrained agent does not
+stabilize the system, so an open-loop unstable instance would diverge before learning starts.
+
+The scalar running example qualifies as well ($n = 1$, $a = b = q = r = 1$): it becomes
+$x^+ = s(x)\, x + \beta(x)\, u$ with the same $J^* = p$ as in Section~\ref{sec:riccati}.
+
+\paragraph{The gap.} For any deterministic policy $\pi$ the gap is defined as in
+Section~\ref{sec:onerun},
+\[
+  g(\pi) = 1 - \frac{J^*}{J(\pi)} \in [0, 1],
+\]
+with the same convention that a policy of infinite cost has gap one. It lies in $[0, 1]$ because
+$J^*$ is the true optimum. Four things differ from the linear case.
+\begin{itemize}[leftmargin=*]
+  \item \textbf{The cost of a policy is measured, not computed.} There is no closed form for the
+    cost of a gain and no finite-cost interval $\mathcal{K}_\gamma$; $J(\pi)$ is the discounted cost
+    of a long deterministic rollout from $x_0$, and stability is judged from the same rollout.
+  \item \textbf{Linear policies have a floor.} The best gain $u = -Kx$ has a gap above zero. An
+    algorithm restricted to linear policies converges to this floor at best; a policy class that
+    contains $u^*$ (a table, a network) can reach zero. On this problem the floor of a learning
+    curve separates what the policy class can represent from what the algorithm manages to learn.
+  \item \textbf{The LQR design is suboptimal.} The gain $K^*$ of the linearization, which is what
+    LQR applied to the linearized system returns, has a positive gap.
+  \item \textbf{No expansion around an optimal gain.} The bias and variance split of
+    Section~\ref{sec:seeds} expands the gap around $K^*$ and needs the optimum to be a gain; it does
+    not apply here.
+\end{itemize}
+The table gives these gaps for the instance above; the best linear gain is found by a numerical
+search over $K$.
+\begin{center}
+  \begin{tabular}{@{}cccc@{}}
+    \toprule
+    $k$ & $g(u = 0)$ & $g(u = -K^* x)$ & $\min_K g(u = -Kx)$ \\
+    \midrule
+    0 & 0.654 & 0      & 0 \\
+    1 & 0.583 & 0.0026 & 0.0002 \\
+    2 & 0.416 & 0.0308 & 0.0044 \\
+    3 & 0.299 & 0.0703 & 0.0116 \\
+    4 & 0.297 & 0.0449 & 0.0037 \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+The effect is not monotone in $k$: both gaps are smaller at $k = 4$ than at $k = 3$. We have not
+analysed why. The floors are small, about one percent at most, so they are visible only on a
+logarithmic gap axis.
+
+\emph{$k$ and the size of $x_0$ are the same dial.} The nonlinearity enters only through $k x_1$,
+and the system is otherwise homogeneous of degree one. Replacing $(x, u, k)$ by
+$(\lambda x, \lambda u, k/\lambda)$ leaves the dynamics unchanged and multiplies every cost by
+$\lambda^2$, so the gap is the same. Starting twice as far from the origin is the same experiment as
+doubling $k$.
+
+\paragraph{Relation to the continuous-time construction.} The same idea is easier to state in
+continuous time without discount. For $\dot x = f(x) + G(x)\, u$ with cost $q(x) + u^2$, the
+Hamilton--Jacobi--Bellman equation gives $u^* = -\tfrac12 G^\top \nabla V$ and
+\[
+  \nabla V^\top f = -q + \tfrac14 \big(G^\top \nabla V\big)^2 ,
+\]
+which is linear in the drift $f$: choose $V$, $G$ and $q$, and any $f$ satisfying this one scalar
+equation has $V$ as its cost-to-go. An example with $\beta(x_1) = \cos(2 x_1) + 2$ and
+$q = x_1^2 + x_2^2$ is
+\[
+  \dot x_1 = -x_1 + x_2, \qquad
+  \dot x_2 = -\tfrac12 x_1 - \tfrac12 x_2 \big(1 - \beta^2\big) + \beta\, u, \qquad
+  V = \tfrac12 x_1^2 + x_2^2, \qquad u^* = -\beta\, x_2 ,
+\]
+whose $V$ is again the Riccati solution of the linearization, $P = \mathrm{diag}(1/2,\ 1)$. We do
+not use it as the benchmark. The agents act in steps and with a discount, which is a different
+optimization problem, and its optimal cost is not $V(x_0)$. From $x_0 = (1, 1)$, where $V = 1.5$,
+the policy $u^*$ costs $1.68$ with Euler steps of $0.1$ and $1.52$ with steps of $0.01$; with a
+discount of $0.99$ per step and steps of $0.01$ it costs $1.11$, below $V(x_0)$. A gap measured
+against $V(x_0)$ would carry an error of that size, of either sign, as large as the floors in the
+table. The construction of this section is the same idea carried out in discrete time, where the
+Bellman equation is quadratic in the drift instead of linear; that is why a scale factor with a
+square root appears in place of an added term.
+
+%----------------------------------------------------------------------------------------------------
 \section{A possible experiment}
 
 \begin{itemize}[leftmargin=*]
@@ -872,6 +1046,10 @@ quarter in Chebyshev's case:
     $\mathcal{K}_\gamma$ score one, and the fraction of unstable gains, $|1 - k| \ge 1$, is reported.
   \item Report $\hat g_X$ with confidence bands, the floors, the bias and variance of the final gains,
     the crossing times, and which ordering of Section~\ref{sec:seeds} holds.
+  \item Repeat on the nonlinear benchmark of Section~\ref{sec:nlqr} with $k = 2$, with the algorithms
+    unchanged: they only see observations and rewards. Policies are scored by rollout, the gap is
+    plotted on a logarithmic axis, and the floor of a linear policy ($0.0044$) is the reference
+    for algorithms restricted to gains.
 \end{itemize}
 
 %----------------------------------------------------------------------------------------------------
@@ -889,6 +1067,10 @@ quarter in Chebyshev's case:
   \item \textbf{Locality.} The quadratic approximation holds only near $K^*$, and the exact formula
     for the gap holds only for these parameter values.
   \item \textbf{Higher dimensions.} $K$ becomes a matrix and the expansion involves a Hessian.
+  \item \textbf{The nonlinear benchmark is constructed.} Its drift is rescaled by $s(x)$ precisely so
+    that the solution is exact; it is not a physical system, its nonlinearity is mild, and it has
+    one particular structure (a state-dependent input gain). It tests whether an algorithm copes
+    with a non-linear optimal policy, not nonlinear control in general.
   \item \textbf{SAC.} Evaluate it by its mean action to avoid the effect of the entropy bonus.
 \end{itemize}
 
