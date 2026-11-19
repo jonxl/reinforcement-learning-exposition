@@ -1,0 +1,989 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue]{hyperref}
+
+\title{Notes: Measuring Reinforcement Learning Against the Exact LQR Optimum}
+\author{Jon Legasa}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\section*{Summary}
+
+LQR has become a standard for measuring RL algorithms, but we found that some algorithms have not
+been tested on it, and we are trying to see the impact of LQR across many seeds to see the behavior
+of these algorithms. We seek to understand whether there is any way to measure the performance of
+these algorithms with respect to each other, and then to measure their performance on RL
+environments to see if these differences in performance hold even for many seeds.
+
+%----------------------------------------------------------------------------------------------------
+\section{Motivation}
+
+We came together to try to find what makes these algorithms special, following consistent
+benchmarks and baselines. We set up the LQR step to motivate the baseline (Section~\ref{sec:riccati}).
+Agyei, Sarhadi and Polani (2025) introduced LQI as the baseline for comparing deep RL algorithms on
+tracking problems in continuous time, one of them nonlinear (Section~\ref{sec:lqi}). From this
+baseline we extend to those setups.
+
+We then introduce the many seeds, the expected value and the average of the learning curves
+(Section~\ref{sec:seeds}), because we expect the learning curves to converge to the same value
+across seeds, and to be bounded. Think of the set of seeds as points on a line, any of which can be
+picked. As we observe all seeds and measure the performance of every algorithm, it could be possible
+that, as training time increases, for all seeds on this line the algorithms generate learning curves
+that satisfy an ordering inequality. That is the setup of these notes.
+
+The LQR is a standard diagnostic for RL because its optimal controller is known (Recht 2019).
+Earlier LQR comparisons covered certainty equivalence, least-squares policy iteration, REINFORCE and
+random search (Recht 2019; Mania, Guy and Recht 2018). Agyei et al.\ compared deep RL methods with an
+LQI controller using step-response metrics.
+
+%----------------------------------------------------------------------------------------------------
+\section{Problem and notation}
+\label{sec:problem}
+
+\[
+  x_{t+1} = A x_t + B u_t, \qquad c(x, u) = x^\top Q x + u^\top R u, \qquad
+  J(\pi) = \sum_{t=0}^{\infty} \gamma^t c(x_t, u_t), \qquad 0 < \gamma \le 1 .
+\]
+
+Here $x_t$ is the state at time $t$ and $u_t$ is the control; $A$ describes how the state evolves on
+its own and $B$ how the control acts on it. The \textbf{stage cost} is the cost paid at time $t$:
+\[
+  c(x_t, u_t) = \underbrace{x_t^\top Q\, x_t}_{\text{distance from } 0}
+  + \underbrace{u_t^\top R\, u_t}_{\text{control effort}},
+  \qquad Q \succeq 0, \quad R \succ 0 .
+\]
+In the scalar case, $A$, $B$, $Q$ and $R$ are the numbers $a$, $b$, $q$ and $r$.
+
+$J(\pi)$ is the total discounted cost of following the policy $\pi$ from $x_0$: run the system under
+$\pi$ and add up the stage costs, with the cost at time $t$ weighted by $\gamma^t$. The discount factor
+$\gamma$ is the same one the agents use, so the baseline and the agents optimize the same objective;
+$\gamma = 1$ is the undiscounted problem, and every result below reduces to it. The system is
+noise-free, with fixed $x_0$ (Section~\ref{sec:limitations} covers noise). Policies are linear,
+$u = -Kx$, and $J^* = \min_\pi J(\pi)$ is attained at $K^*$, as derived in Section~\ref{sec:riccati};
+both depend on $\gamma$. The agent receives the reward $r_t = -c(x_t, u_t)$ and maximizes the
+discounted return $\sum_t \gamma^t r_t = -J(\pi)$. It does not know $A$, $B$, $Q$, $R$, $K^*$ or
+$J^*$; these are used only to evaluate it. Numerical examples use $\gamma = 0.99$. Algorithms $A$, $B$ and $C$ (PPO, SAC and TD3) are trained with many
+seeds, and $N$ counts training iterations.
+
+%----------------------------------------------------------------------------------------------------
+\section{The Riccati solution}
+\label{sec:riccati}
+
+The Riccati equation is the Bellman equation of the LQR, reduced to an equation for a single
+matrix. The optimal cost-to-go $V(x)$, the total discounted cost of acting optimally from state $x$,
+pays the stage cost now and the discounted cost-to-go from the next state:
+\[
+  V(x) = \min_u \Big[\, x^\top Q x + u^\top R u + \gamma\, V(A x + B u) \,\Big].
+\]
+
+Guess that the cost-to-go is quadratic, with a symmetric positive semidefinite matrix $P$; the guess
+is confirmed if it leads to a consistent equation for $P$. Substituting it, the bracket becomes
+\[
+  V(x) = x^\top P x, \qquad x^\top Q x + u^\top R u + \gamma\, (A x + B u)^\top P (A x + B u).
+\]
+This is a convex quadratic in the control, because $R$ is positive definite and the term with $P$ is
+positive semidefinite. Its gradient with respect to the control is
+\[
+  \nabla_u = 2 R u + 2 \gamma B^\top P (A x + B u)
+  = 2\big(R + \gamma B^\top P B\big) u + 2 \gamma B^\top P A\, x ,
+\]
+and setting it to zero gives the optimal control:
+\[
+  u^* = -\big(R + \gamma B^\top P B\big)^{-1} \gamma B^\top P A\, x = -K^* x .
+\]
+
+Substituting the optimal control back, both sides of the Bellman equation are quadratic forms in
+the state:
+\[
+  x^\top P x = x^\top \Big[\, Q + K^{*\top} R K^* + \gamma (A - B K^*)^\top P (A - B K^*) \,\Big] x .
+\]
+Expanding the last term and grouping the two terms that contain the gain twice:
+\[
+  Q + \gamma A^\top P A - \gamma A^\top P B K^* - \gamma K^{*\top} B^\top P A
+  + K^{*\top} \big(R + \gamma B^\top P B\big) K^* .
+\]
+The definition of the optimal gain gives the identity below, which makes the last term equal to the
+one before it, so those two cancel:
+\[
+  \big(R + \gamma B^\top P B\big) K^* = \gamma B^\top P A
+  \quad\Longrightarrow\quad
+  K^{*\top} \big(R + \gamma B^\top P B\big) K^* = \gamma K^{*\top} B^\top P A .
+\]
+What remains is the matrix in brackets, and it must equal $P$ because the two quadratic forms agree
+for every state and both matrices are symmetric. This is the discounted discrete algebraic Riccati
+equation, shown with the optimal gain and the optimal cost:
+\begin{gather*}
+  P = Q + \gamma A^\top P A - \gamma^2 A^\top P B \big(R + \gamma B^\top P B\big)^{-1} B^\top P A, \\
+  K^* = \big(R + \gamma B^\top P B\big)^{-1} \gamma B^\top P A, \qquad J^* = x_0^\top P x_0 .
+\end{gather*}
+
+$P$ is the cost-to-go matrix: the optimal cost is the cost-to-go at the initial state, which is why
+the optimal cost is the quadratic form of $P$ at the initial state. The equation is algebraic
+because, over an infinite horizon, $P$ does not change with time; it is a fixed point of the Bellman
+equation. It is quadratic in $P$.
+
+\paragraph{The discount as rescaled dynamics.} Writing $\gamma = \sqrt{\gamma}\cdot\sqrt{\gamma}$ in
+every term shows that the discounted equation is the undiscounted one for rescaled matrices:
+\[
+  A_\gamma = \sqrt{\gamma}\, A, \qquad B_\gamma = \sqrt{\gamma}\, B
+  \quad\Longrightarrow\quad
+  P = Q + A_\gamma^\top P A_\gamma - A_\gamma^\top P B_\gamma \big(R + B_\gamma^\top P B_\gamma\big)^{-1}
+  B_\gamma^\top P A_\gamma .
+\]
+So a standard Riccati solver applied to $(\sqrt{\gamma} A, \sqrt{\gamma} B, Q, R)$ returns the
+discounted $P$, and the same substitution handles the augmented system of Section~\ref{sec:lqi}. The
+discounted optimal gain makes $\sqrt{\gamma}(A - BK^*)$ stable, which is weaker than making $A - BK^*$
+stable; in the scalar example below it does both.
+
+\paragraph{The scalar case.} With $n = m = 1$:
+\[
+  A = [a], \quad B = [b], \quad Q = [q], \quad R = [r], \quad P = [p].
+\]
+Substituting term by term into the Riccati equation, with transposes acting trivially on numbers:
+\[
+  P = Q + \underbrace{\gamma A^\top P A}_{(1)} - \underbrace{\gamma A^\top P B}_{(2)}\,
+  \underbrace{\big(R + \gamma B^\top P B\big)^{-1}}_{(3)}\, \underbrace{\gamma B^\top P A}_{(4)},
+\]
+\begin{align*}
+  (1)\;& \gamma A^\top P A = \gamma\, a\, p\, a = \gamma a^2 p, &
+  (2)\;& \gamma A^\top P B = \gamma\, a\, p\, b = \gamma a b\, p, \\
+  (3)\;& \big(R + \gamma B^\top P B\big)^{-1} = \frac{1}{r + \gamma b^2 p}, &
+  (4)\;& \gamma B^\top P A = \gamma\, b\, p\, a = \gamma a b\, p .
+\end{align*}
+Multiplying (2), (3) and (4) gives the scalar Riccati equation:
+\[
+  (2)(3)(4) = \frac{\gamma^2 a^2 b^2 p^2}{r + \gamma b^2 p},
+  \qquad
+  p = q + \gamma a^2 p - \frac{\gamma^2 a^2 b^2 p^2}{r + \gamma b^2 p} .
+\]
+With $a = b = q = r = 1$ and $x_0 = 1$, multiply through by $1 + \gamma p$:
+\[
+  p = 1 + \gamma p - \frac{\gamma^2 p^2}{1 + \gamma p}
+  \ \Longrightarrow\ (p - 1 - \gamma p)(1 + \gamma p) = -\gamma^2 p^2
+  \ \Longrightarrow\ \gamma p^2 + (1 - 2\gamma)\, p - 1 = 0 ,
+\]
+and take the root with $p \ge 0$:
+\[
+  p = \frac{(2\gamma - 1) + \sqrt{4\gamma^2 + 1}}{2\gamma}, \qquad
+  K^* = \frac{\gamma a b\, p}{r + \gamma b^2 p} = \frac{\gamma p}{1 + \gamma p}
+  = \frac{\sqrt{1 + 4\gamma^2} - 1}{2\gamma}, \qquad
+  J^* = p\, x_0^2 = p .
+\]
+The closed form of the gain follows by substituting $p = K^*/(\gamma(1 - K^*))$, the inverse of the
+middle expression, into the quadratic, which leaves
+\[
+  \gamma (K^*)^2 + K^* - \gamma = 0 .
+\]
+At $\gamma = 1$ these are the golden-ratio values $p = (1 + \sqrt{5})/2 \approx 1.618$ and
+$K^* = (\sqrt{5} - 1)/2 \approx 0.618$. At $\gamma = 0.99$:
+\[
+  K^* \approx 0.6153, \qquad J^* = p \approx 1.6153 .
+\]
+
+So the cost-to-go matrix is the $1 \times 1$ matrix $[p]$, and $V(x) = p x^2$. Two identities are used
+below:
+\[
+  (K^*)^2 = 1 - \frac{K^*}{\gamma}, \qquad 1 + \gamma J^* = 1 + \gamma p = \frac{1}{1 - K^*} .
+\]
+At $\gamma = 1$ the first reads $(K^*)^2 + K^* - 1 = 0$, and together they give $K^* J^* = 1$. The
+gain lies in $(0, 1)$ for every $\gamma \in (0, 1]$, so $1 - K^*$ lies in $(0, 1)$ and the closed loop
+$x_{t+1} = (1 - K^*)x_t$ is stable without the discount. In higher dimensions $P$ stays a genuine
+matrix, and the Riccati equation is a system of coupled quadratic equations in its entries, usually
+solved numerically.
+
+%----------------------------------------------------------------------------------------------------
+\section{From LQR to LQI}
+\label{sec:lqi}
+
+LQR drives the state to zero. A tracking problem asks an output to follow a reference instead, and
+with a constant disturbance LQR leaves a permanent error. LQI is LQR applied to a system enlarged by
+one state that accumulates the error.
+
+\paragraph{The offset under a constant disturbance.} Add a constant disturbance to the system and
+apply the LQR controller:
+\[
+  x_{t+1} = A x_t + B u_t + d, \qquad u_t = -K x_t .
+\]
+At steady state the state stops changing, so it must satisfy
+\[
+  x_{\mathrm{ss}} = (A - B K)\, x_{\mathrm{ss}} + d
+  \quad\Longrightarrow\quad
+  x_{\mathrm{ss}} = \big(I - A + B K\big)^{-1} d \neq 0 .
+\]
+In the scalar example the steady state is a multiple of the disturbance:
+\[
+  x_{\mathrm{ss}} = (1 - k)\, x_{\mathrm{ss}} + d
+  \quad\Longrightarrow\quad k\, x_{\mathrm{ss}} = d
+  \quad\Longrightarrow\quad x_{\mathrm{ss}} = \frac{d}{k} \approx 1.625\, d
+  \quad (k = K^*,\ \gamma = 0.99).
+\]
+The controller pushes back only in proportion to the current error, so it needs a nonzero error to
+produce the push that cancels the disturbance.
+
+\paragraph{Tracking as shifted regulation.} To make an output follow a constant reference, find the
+equilibrium that gives that output, a state and a constant control that hold it:
+\[
+  y_t = C x_t, \qquad x_{\mathrm{ss}} = A x_{\mathrm{ss}} + B u_{\mathrm{ss}} + d, \qquad
+  C x_{\mathrm{ss}} = y_{\mathrm{ref}} .
+\]
+Subtracting the equilibrium equation from the dynamics removes the disturbance and leaves a pure LQR
+problem in shifted coordinates:
+\begin{gather*}
+  \tilde x_t = x_t - x_{\mathrm{ss}}, \quad \tilde u_t = u_t - u_{\mathrm{ss}}
+  \quad\Longrightarrow\quad
+  \tilde x_{t+1} = A \tilde x_t + B \tilde u_t, \\
+  u_t = u_{\mathrm{ss}} - K\,(x_t - x_{\mathrm{ss}}) .
+\end{gather*}
+So tracking is regulation around a shifted equilibrium, but computing that equilibrium requires
+knowing the disturbance and the model exactly. Without the disturbance the shift is wrong and the
+offset returns.
+
+\paragraph{The integral state.} Instead of computing the shift, add a state that accumulates the
+tracking error:
+\[
+  \epsilon_t = y_{\mathrm{ref}} - C x_t, \qquad z_{t+1} = z_t + \epsilon_t
+  \quad\Longrightarrow\quad z_t = \sum_{s=0}^{t-1} \epsilon_s .
+\]
+Here time is discrete, so $z$ is a sum of past errors. In continuous time, where $t$ is a real
+number, the same state is an integral, which is where the name comes from:
+\[
+  \dot z(t) = \epsilon(t) \quad\Longrightarrow\quad z(t) = \int_0^t \epsilon(s)\, ds .
+\]
+
+\paragraph{The augmented LQR problem.} Treat $z$ as an extra state component. The enlarged system is
+still linear and the discounted cost is still quadratic, with one more weight:
+\[
+  \begin{pmatrix} x_{t+1} \\ z_{t+1} \end{pmatrix}
+  = \begin{pmatrix} A & 0 \\ -C & I \end{pmatrix}
+    \begin{pmatrix} x_t \\ z_t \end{pmatrix}
+  + \begin{pmatrix} B \\ 0 \end{pmatrix} u_t
+  + \begin{pmatrix} d \\ y_{\mathrm{ref}} \end{pmatrix},
+  \qquad
+  \sum_t \gamma^t \Big( x_t^\top Q x_t + z_t^\top Q_z z_t + u_t^\top R u_t \Big).
+\]
+The discounted Riccati equation of Section~\ref{sec:riccati}, applied to these larger matrices in the
+shifted coordinates (equivalently, the undiscounted one applied to $\sqrt{\gamma}$ times them), gives a
+gain with one part for each state, so the LQI controller is proportional plus integral:
+\[
+  u_t = -K_x x_t - K_z z_t .
+\]
+
+\paragraph{Zero steady-state error.} At steady state every state stops changing. For the integral
+state this forces the error to zero:
+\[
+  z_{\mathrm{ss}} = z_{\mathrm{ss}} + \big(y_{\mathrm{ref}} - C x_{\mathrm{ss}}\big)
+  \quad\Longrightarrow\quad C x_{\mathrm{ss}} = y_{\mathrm{ref}} .
+\]
+In the scalar example, with output equal to the state, the two steady-state equations give
+\[
+  x_{\mathrm{ss}} = y_{\mathrm{ref}}, \qquad
+  x_{\mathrm{ss}} = x_{\mathrm{ss}} + u_{\mathrm{ss}} + d
+  \ \Longrightarrow\ u_{\mathrm{ss}} = -d = -K_x y_{\mathrm{ref}} - K_z z_{\mathrm{ss}}
+  \ \Longrightarrow\ z_{\mathrm{ss}} = \frac{d - K_x y_{\mathrm{ref}}}{K_z} .
+\]
+The integral state settles at exactly the value that cancels the disturbance, without the
+disturbance ever being known. The proportional part no longer needs a nonzero error, because the
+accumulated error holds the push.
+
+\paragraph{Continuous time.} The same construction holds with the dynamics written as differential
+equations. A continuous discount $e^{-\alpha t}$ is absorbed by the substitution
+$\tilde x = e^{-\alpha t/2} x$, $\tilde u = e^{-\alpha t/2} u$, which shifts the dynamics matrix, and
+the gain then comes from the continuous algebraic Riccati equation for the shifted matrix:
+\begin{gather*}
+  \dot x = A x + B u + d, \qquad \dot z = y_{\mathrm{ref}} - C x, \qquad
+  \int_0^\infty e^{-\alpha t}\big(x^\top Q x + u^\top R u\big)\, dt, \\
+  A_\alpha = A - \tfrac{\alpha}{2} I, \qquad
+  A_\alpha^\top P + P A_\alpha - P B R^{-1} B^\top P + Q = 0, \qquad K^* = R^{-1} B^\top P .
+\end{gather*}
+The agents act at a sampling interval $\Delta t$, so they see a discrete-time system. Holding the
+control constant between samples makes the sampled system exact and linear, and the two discounts
+match:
+\[
+  A_d = e^{A \Delta t}, \qquad B_d = \int_0^{\Delta t} e^{A s}\, ds\; B, \qquad
+  \gamma = e^{-\alpha \Delta t} .
+\]
+The agent's reward at each sample defines the discrete stage cost, for example
+$\Delta t\,(x_t^\top Q x_t + u_t^\top R u_t)$. The discrete-time baseline of
+Section~\ref{sec:riccati}, applied to $(A_d, B_d)$ with that same stage cost and $\gamma$, is the exact
+optimum for the problem the agents actually solve, so continuous-time environments need no separate
+theory. It differs slightly from the continuous-time optimum above, by an amount that vanishes as the
+sampling interval shrinks.
+
+\paragraph{The Agyei et al.\ environments.} Agyei, Sarhadi and Polani (2025) chose LQI because their
+tasks are setpoint tracking; in their words, ``the integral action ensures zero steady-state error for
+step references, making LQI superior to LQR for tracking applications.'' Their deep RL agents were
+trained on the negative of the LQI cost. All four environments are continuous-time tracking
+problems, and only one is nonlinear:
+
+\begin{center}
+  \begin{tabular}{p{0.3\textwidth} p{0.32\textwidth} p{0.28\textwidth}}
+    \toprule
+    Environment & Model & Task \\
+    \midrule
+    Chemical reactor (CSTR) & Linear transfer function, non-minimum phase & Step setpoint tracking \\
+    Two-mass spring (ACC 1992 benchmark) & Linear state space & Step setpoint tracking \\
+    REMUS underwater vehicle (yaw) & Nonlinear & Step setpoint tracking \\
+    Crazyflie quadrotor (altitude) & Reduced-order linear model of a nonlinear system
+      & Multi-step altitude tracking, simulation and hardware \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+
+These notes start from the regulation baseline of Sections~\ref{sec:problem} and~\ref{sec:riccati},
+where the optimum is exact, and the LQI construction above is how that baseline extends to these
+tracking environments.
+
+%----------------------------------------------------------------------------------------------------
+\section{The learning curve of one run}
+\label{sec:onerun}
+
+\paragraph{Cost of a linear policy.} For the policy with gain $k$, with all parameters equal to one
+and initial state one, the trajectory and the stage costs are
+\begin{gather*}
+  u_t = -k\, x_t, \qquad x_{t+1} = x_t + u_t = (1 - k)\, x_t \ \Longrightarrow\ x_t = (1 - k)^t, \\
+  c(x_t, u_t) = x_t^2 + u_t^2 = (1 + k^2)\, x_t^2 = (1 + k^2)(1 - k)^{2t}.
+\end{gather*}
+The discounted stage costs form a geometric series with ratio $\gamma(1 - k)^2$. It converges exactly
+when the ratio is below one:
+\begin{gather*}
+  \sum_{t=0}^{\infty} \rho^t = \frac{1}{1 - \rho} \ \ (|\rho| < 1), \qquad
+  \rho = \gamma (1 - k)^2 < 1 \iff |1 - k| < \frac{1}{\sqrt{\gamma}} \\
+  \iff k \in \mathcal{K}_\gamma = \Big(1 - \frac{1}{\sqrt{\gamma}},\ 1 + \frac{1}{\sqrt{\gamma}}\Big).
+\end{gather*}
+So the cost of a gain is
+\[
+  J : \mathbb{R} \to [0, \infty], \qquad
+  J(k) = \sum_{t=0}^{\infty} \gamma^t (1 + k^2)(1 - k)^{2t}
+  = \begin{cases} \dfrac{1 + k^2}{1 - \gamma (1 - k)^2}, & k \in \mathcal{K}_\gamma, \\[1ex]
+    +\infty, & \text{otherwise.} \end{cases}
+\]
+At $\gamma = 1$ the interval is $(0, 2)$ and the denominator is $1 - (1 - k)^2 = k(2 - k)$.
+
+\emph{Finite cost is not stability.} The closed loop is stable when $|1 - k| < 1$, that is
+$0 < k < 2$. For $\gamma < 1$ the interval of finite cost is wider: at $\gamma = 0.99$ it is about
+$(-0.005, 2.005)$. A gain in the thin bands between the two intervals makes the state grow, yet the
+discount shrinks the costs faster than the state grows, so the cost is finite. Such runs are counted
+as unstable separately, by the test $|1 - k| \ge 1$, and are not detected by the gap alone.
+
+\paragraph{Functions.} The gap of a gain, and, for one run of an algorithm, its gain, learning curve
+and perturbation, for $X \in \{A, B, C\}$, with the convention that a finite number divided by
+infinity is zero:
+\begin{align*}
+  g &: \mathbb{R} \to [0, 1], & g(k) &= \frac{J(k) - J^*}{J(k)} = 1 - \frac{J^*}{J(k)}, \\
+  k_X &: \mathbb{N} \to \mathbb{R}, & k_X(N) &= \text{gain after } N \text{ iterations}, \\
+  g_X &: \mathbb{N} \to [0, 1], & g_X(N) &= g\big(k_X(N)\big), \\
+  e_X &: \mathbb{N} \to \mathbb{R}, & e_X(N) &= k_X(N) - K^* .
+\end{align*}
+The gap is the excess cost as a fraction of the cost the algorithm actually pays with its gain. Only
+the gain changes during training; the optimal cost is fixed.
+
+\emph{Why the gap is bounded.} A gain with finite cost costs at least the optimum, and any other gain
+costs infinitely much:
+\begin{gather*}
+  k \in \mathcal{K}_\gamma: \ J^* \le J(k) < \infty \ \Longrightarrow\ 0 < \frac{J^*}{J(k)} \le 1
+  \ \Longrightarrow\ 0 \le g(k) < 1, \\
+  k \notin \mathcal{K}_\gamma: \ J(k) = \infty \ \Longrightarrow\ \frac{J^*}{J(k)} = 0
+  \ \Longrightarrow\ g(k) = 1 .
+\end{gather*}
+A run whose gain leaves the finite-cost interval scores one, the worst possible value, instead of
+infinity, so the learning curve never blows up.
+
+\emph{An exact formula in this instance.} Putting the excess cost over a common denominator:
+Write $h(k) = 1 - \gamma(1 - k)^2$ for the denominator of the cost:
+\begin{gather*}
+  J(k) - J^* = \frac{1 + k^2}{h(k)} - J^* = \frac{1 + k^2 - J^* + \gamma J^* (1 - k)^2}{h(k)}
+  = \frac{(1 + \gamma J^*)\, k^2 - 2\gamma J^* k + (1 - J^* + \gamma J^*)}{h(k)} .
+\end{gather*}
+The numerator is a quadratic in the gain. A quarter of its discriminant vanishes, because the optimal
+cost $p$ satisfies the scalar Riccati equation $\gamma p^2 + (1 - 2\gamma)p - 1 = 0$ of
+Section~\ref{sec:riccati}:
+\begin{gather*}
+  (1 + \gamma J^*)(1 - J^* + \gamma J^*) = 1 + (2\gamma - 1) J^* - \gamma (J^*)^2 + \gamma^2 (J^*)^2, \\
+  \gamma^2 (J^*)^2 - (1 + \gamma J^*)(1 - J^* + \gamma J^*)
+  = \gamma (J^*)^2 + (1 - 2\gamma) J^* - 1 = 0 .
+\end{gather*}
+So the numerator is a perfect square, with its double root at the optimal gain:
+\[
+  k = \frac{2\gamma J^*}{2(1 + \gamma J^*)} = \frac{\gamma p}{1 + \gamma p} = K^*
+  \quad\Longrightarrow\quad
+  (1 + \gamma J^*)\, k^2 - 2\gamma J^* k + (1 - J^* + \gamma J^*) = (1 + \gamma J^*)(k - K^*)^2 .
+\]
+Dividing the excess cost by the cost, the denominators cancel:
+\begin{gather*}
+  g(k) = \frac{(1 + \gamma J^*)(k - K^*)^2}{h(k)} \cdot \frac{h(k)}{1 + k^2}
+  = \frac{(1 + \gamma J^*)(k - K^*)^2}{1 + k^2}, \qquad k \in \mathcal{K}_\gamma, \\
+  1 + \gamma J^* = \frac{1}{1 - K^*} \approx 2.599 \ \ (\gamma = 0.99), \qquad
+  \frac{3 + \sqrt{5}}{2} \approx 2.618 \ \ (\gamma = 1) .
+\end{gather*}
+This holds only for these parameter values ($a = b = q = r = x_0 = 1$, any $\gamma$); in general only
+the definition holds.
+
+\paragraph{Shape of the gap.}
+\begin{gather*}
+  g(K^*) = 0, \qquad g \ \text{decreasing on } \big(1 - \tfrac{1}{\sqrt{\gamma}}, K^*\big), \quad
+  \text{increasing on } \big(K^*, 1 + \tfrac{1}{\sqrt{\gamma}}\big), \\
+  g(k) \to 1 \ \text{at both ends of } \mathcal{K}_\gamma, \qquad
+  g = 1 \ \text{outside } \mathcal{K}_\gamma .
+\end{gather*}
+These follow from the derivative of the cost. Differentiating the definition, the constant optimal
+cost stays outside:
+\[
+  g = 1 - J^* J^{-1} \quad\Longrightarrow\quad g' = J^* J^{-2} J' = \frac{J^*}{J^2}\, J' ,
+\]
+so the gap has the sign of the derivative of the cost. Write the cost as a ratio and differentiate:
+\begin{gather*}
+  J = \frac{f}{h}, \quad f(k) = 1 + k^2, \quad h(k) = 1 - \gamma (1 - k)^2, \qquad
+  J' = \frac{f' h - f h'}{h^2}, \\
+  f' h - f h' = 2k \big(1 - \gamma (1 - k)^2\big) - (1 + k^2)\, 2\gamma (1 - k)
+  = 2\,(\gamma k^2 + k - \gamma).
+\end{gather*}
+Since the denominator is positive, the derivative has the sign of the quadratic factor. Its roots
+have product $-1$, so exactly one is positive, and it lies in $\mathcal{K}_\gamma$:
+\[
+  \gamma k^2 + k - \gamma = 0 \ \Longrightarrow\ k = \frac{\sqrt{1 + 4\gamma^2} - 1}{2\gamma} = K^* ,
+\]
+which recovers the Riccati gain of Section~\ref{sec:riccati}. The other root is below
+$-1/\gamma \le 1 - 1/\sqrt{\gamma}$, outside the interval. The derivative is negative to the left of
+the optimal gain and positive to the right. At the walls the cost goes to infinity, so the ratio of
+the optimal cost to the cost goes to zero and the gap goes to one. Together with the value one outside
+the finite-cost interval, this makes the gap continuous on the whole real line.
+
+Geometrically, the gap is a valley with its bottom at the optimal gain, rising to height one at the
+walls $1 \pm 1/\sqrt{\gamma}$ and staying there beyond them. The perturbation is the horizontal
+distance from the bottom, and the gap is the height. The left wall is closer to the bottom than the
+right wall (about $0.62$ against $1.39$ at $\gamma = 0.99$), so the valley is steeper on the left.
+
+\paragraph{Gap and perturbation.} Two facts connect the size of the gap to the size of the
+perturbation.
+
+\emph{A small perturbation gives a small gap.} The gap is continuous, as shown above. Continuity at
+the optimal gain, where the gap is zero, says exactly:
+\[
+  \forall \varepsilon > 0 \ \exists \delta > 0 : \quad
+  |k - K^*| < \delta \ \Longrightarrow\ g(k) < \varepsilon .
+\]
+
+\emph{A small gap gives a small perturbation.} This holds because the optimal gain is the unique
+minimizer:
+\[
+  \forall \eta > 0 \ \exists \varepsilon > 0 : \quad
+  g(k) < \varepsilon \ \Longrightarrow\ |k - K^*| < \eta .
+\]
+To find such an $\varepsilon$, take the smaller of the two gaps at distance $\eta$ from the optimal
+gain, for $\eta$ smaller than the distance $K^* - (1 - 1/\sqrt{\gamma})$ to the left wall:
+\[
+  \varepsilon = \min\big\{\, g(K^* - \eta),\ g(K^* + \eta) \,\big\} \in (0, 1) .
+\]
+The gap decreases toward the optimal gain from the left and increases away from it on the right, and
+every gain outside the finite-cost interval has gap one, which is larger than $\varepsilon$. So every gain
+at distance $\eta$ or more has a gap of at least $\varepsilon$, and a gap below $\varepsilon$ forces a
+distance below $\eta$.
+
+Applying the two facts along the sequence of gains of a run: once the learning curve stays below
+$\varepsilon$, the perturbation stays below $\eta$, and once the perturbation stays below $\delta$,
+the learning curve stays below $\varepsilon$. This gives
+\[
+  g_X(N) \to 0 \iff k_X(N) \to K^* \iff e_X(N) \to 0 .
+\]
+Both facts hold for any continuous gap with a unique minimum, not only for this example.
+
+\paragraph{Behaviour near the optimal gain.} Dividing the exact formula by the square of the
+perturbation:
+\[
+  \frac{g(K^* + e)}{e^2} = \frac{1 + \gamma J^*}{1 + (K^* + e)^2}
+  \ \xrightarrow{\ e \to 0\ }\ c_\gamma = \frac{1 + \gamma J^*}{1 + (K^*)^2} .
+\]
+Using the two identities of Section~\ref{sec:riccati} to simplify the limit:
+\[
+  1 + \gamma J^* = \frac{1}{1 - K^*}, \qquad 1 + (K^*)^2 = 2 - \frac{K^*}{\gamma}
+  \quad\Longrightarrow\quad
+  c_\gamma = \frac{1}{(1 - K^*)\big(1 + (K^*)^2\big)} .
+\]
+At $\gamma = 1$ this is $(3 + \sqrt{5})/(5 - \sqrt{5}) = 1 + 2/\sqrt{5} \approx 1.894$; at
+$\gamma = 0.99$ it is $c_{0.99} \approx 1.885$. So near the optimum the gap is approximately $c_\gamma$
+times the squared perturbation. For a perturbation of at most 0.1 the gain is positive, so the
+denominator increases with the perturbation and the ratio decreases; its extremes are at the two ends,
+which gives exact bounds, shown at $\gamma = 0.99$ (rounded outward):
+\begin{gather*}
+  |e| \le 0.1: \quad \frac{1 + \gamma J^*}{1 + (K^* + 0.1)^2} \le \frac{g(K^* + e)}{e^2}
+  \le \frac{1 + \gamma J^*}{1 + (K^* - 0.1)^2} \\
+  \Longrightarrow\quad 1.719\, e^2 \le g(K^* + e) \le 2.054\, e^2 .
+\end{gather*}
+The bounds give explicit choices in the two facts. For the first, the upper bound controls the gap
+by the perturbation; for the second, the lower bound and the monotonicity above control the
+perturbation by the gap:
+\[
+  |e| < \delta = \sqrt{\varepsilon / 2.054} \le 0.1
+  \ \Longrightarrow\ g(K^* + e) \le 2.054\, e^2 < 2.054\, \delta^2 = \varepsilon ,
+\]
+\[
+  \eta \le 0.1, \ \varepsilon = 1.719\, \eta^2: \quad
+  |e| \ge \eta \ \Longrightarrow\ g(K^* + e) \ge \min\big\{ g(K^* - \eta), g(K^* + \eta) \big\}
+  \ge 1.719\, \eta^2 = \varepsilon .
+\]
+The two observations below come from the exact formula at $\gamma = 0.99$. The two gains are the same
+distance from the optimum, so the numerators agree and only the denominators differ:
+\begin{gather*}
+  K^* - 0.118 \approx 0.497, \qquad K^* + 0.118 \approx 0.733, \\
+  g(0.497) = \frac{2.599 \cdot 0.118^2}{1 + 0.497^2} \approx 0.029, \qquad
+  g(0.733) = \frac{2.599 \cdot 0.118^2}{1 + 0.733^2} \approx 0.024 .
+\end{gather*}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Observation 1.} A gain about 19\% below the optimum has a gap of only about 3\%: the
+    gap is quadratic in the perturbation.
+  \item \textbf{Observation 2.} Undershooting and overshooting the optimal gain by the same amount,
+    0.118, give gaps of 0.029 and 0.024: undershooting costs more, because the smaller gain has the
+    smaller denominator.
+\end{itemize}
+Both observations hold at every $\gamma$ near one; the numbers change only in the third decimal.
+
+\paragraph{Limits.} The gap is continuous on the whole real line, so continuity carries any limit of
+the gains through the gap, and the floor of the learning curve is the gap at the limit gain:
+\[
+  k_X(N) \to k_{X,\infty} \in \mathbb{R} \ \Longrightarrow\ g_X(N) \to g\big(k_{X,\infty}\big) \in [0, 1] .
+\]
+A run that settles at a gain outside the finite-cost interval has floor one; one that settles in the
+thin unstable bands inside it has a floor below one, and is flagged by the stability test.
+
+\paragraph{Ordering.} The learning curves of the three algorithms may be ordered at every iteration,
+or only after some iteration:
+\[
+  g_A(N) \le g_B(N) \le g_C(N) \quad \forall N, \qquad
+  \exists\, N_0 : \ g_A(N) \le g_B(N) \le g_C(N) \quad \forall N \ge N_0 .
+\]
+The smallest such iteration is the crossing time. Near the optimal gain the gap is, to leading
+order, an increasing function of the size of the perturbation, so the ordering of the curves follows
+the ordering of the perturbations. If the perturbations decay like power laws, the ratio of two of
+them shows which one wins eventually and when they cross:
+\[
+  |e_X(N)| \approx \kappa_X N^{-\beta_X}
+  \ \Longrightarrow\
+  \frac{|e_X(N)|}{|e_Y(N)|} \approx \frac{\kappa_X}{\kappa_Y}\, N^{-(\beta_X - \beta_Y)} \to 0
+  \quad \text{if } \beta_X > \beta_Y ,
+\]
+\[
+  \frac{\kappa_X}{\kappa_Y}\, N^{-(\beta_X - \beta_Y)} = 1
+  \iff N = N_{XY} = \left(\frac{\kappa_X}{\kappa_Y}\right)^{1/(\beta_X - \beta_Y)} .
+\]
+So the faster-decaying algorithm is eventually below; if it starts above, it crosses below at the
+iteration shown.
+
+%----------------------------------------------------------------------------------------------------
+\section{Many seeds}
+\label{sec:seeds}
+
+A seed is a random number. All the randomness in one training run, the initial parameters, the
+exploration noise and any noise in the environment, is generated from it, so once the seed is picked
+the run is deterministic. The set of seeds $\Omega$ is a set of random numbers; in code it is a
+finite set of integers, which can be pictured as points on a line:
+\[
+  \Omega = \{\, 0, 1, 2, \dots, 2^{32} - 1 \,\} \subset \mathbb{R}, \qquad \omega \in \Omega .
+\]
+Picking a seed is drawing a point from this line, and each point gives one learning curve. Over all
+of $\Omega$, an algorithm therefore produces a collection of learning curves, one per seed, and the
+analysis of the algorithm is the analysis of this collection: its average, its spread, its bounds and
+where it settles. The question of the notes is whether, as training time increases, the ordering of
+Section~\ref{sec:onerun} holds for every seed on this line.
+
+The curves are bounded below, because no gain does better than the optimum:
+\[
+  J(k) \ge J^* \quad\Longrightarrow\quad g_X(\omega, N) \ge 0 \quad \text{for every seed and iteration} .
+\]
+They are also bounded above by one, by the definition of the gap in Section~\ref{sec:onerun}. So
+every expected curve below is finite at every iteration, and runs that leave the finite-cost
+interval stay in the averages with the value one:
+\[
+  0 \le g_X(\omega, N) \le 1 \quad \text{for every seed and iteration} .
+\]
+
+\paragraph{Functions.} Seeds are drawn uniformly from the set of integer seeds, and the gain and
+learning curve become functions of the seed as well as the iteration:
+\[
+  \omega \in \Omega, \qquad P(\omega) = 2^{-32},
+\]
+\begin{align*}
+  k_X &: \Omega \times \mathbb{N} \to \mathbb{R}, &
+    k_X(\omega, N) &= \text{gain after } N \text{ iterations with seed } \omega, \\
+  g_X &: \Omega \times \mathbb{N} \to [0, 1], &
+    g_X(\omega, N) &= g\big(k_X(\omega, N)\big).
+\end{align*}
+Fixing $\omega$ recovers Section~\ref{sec:onerun}.
+
+\paragraph{Expected and estimated curves.} Over all seeds, and over the $M$ seeds run:
+\[
+  \bar g_X(N) = \sum_{\omega \in \Omega} P(\omega)\, g\big(k_X(\omega, N)\big), \qquad
+  \hat g_X(N) = \frac{1}{M} \sum_{j=1}^{M} g\big(k_X(\omega_j, N)\big).
+\]
+The seeds are independent, so the variance of an average of $M$ curves is the variance of one curve
+divided by $M$:
+\begin{gather*}
+  \operatorname{Var}\big[\hat g_X(N)\big] = \frac{1}{M^2} \sum_{j=1}^{M}
+    \operatorname{Var}\big[g_X(\omega_j, N)\big] = \frac{\sigma_X(N)^2}{M}, \\
+  \operatorname{SE}\big[\hat g_X(N)\big] = \frac{\sigma_X(N)}{\sqrt{M}}, \qquad
+  \sigma_X(N)^2 = \operatorname{Var}\big[g_X(\cdot, N)\big].
+\end{gather*}
+Runs whose gain has infinite discounted cost stay in the averages with gap one; the fraction of
+unstable runs, $|1 - k_X(\omega, N)| \ge 1$, is reported alongside the curve.
+
+\paragraph{Convergence of the estimated curve.} Fix an iteration. Each seed run gives one number
+between zero and one, the seeds are drawn independently, and the mean of each number is the expected
+curve:
+\[
+  Y_j = g_X(\omega_j, N) \in [0, 1], \qquad
+  \mathbb{E}[Y_j] = \sum_{\omega \in \Omega} P(\omega)\, g_X(\omega, N) = \bar g_X(N), \qquad
+  \hat g_X(N) = \frac{1}{M} \sum_{j=1}^{M} Y_j .
+\]
+Linearity of expectation gives the mean of the estimated curve, and its variance was computed above:
+\[
+  \mathbb{E}\big[\hat g_X(N)\big] = \frac{1}{M} \sum_{j=1}^{M} \mathbb{E}[Y_j] = \bar g_X(N), \qquad
+  \operatorname{Var}\big[\hat g_X(N)\big] = \frac{\sigma_X(N)^2}{M} .
+\]
+Because the gap lies between zero and one, the variance of one run is at most one quarter, whatever
+the algorithm does. A number between zero and one is at least its square, and a downward parabola
+with roots at zero and one has its maximum, one quarter, at one half:
+\[
+  Y_j^2 \le Y_j \ \Longrightarrow\ \sigma_X(N)^2 = \mathbb{E}[Y_j^2] - \bar g_X(N)^2
+  \le \bar g_X(N) - \bar g_X(N)^2 = \bar g_X(N)\big(1 - \bar g_X(N)\big) \le \frac{1}{4} .
+\]
+Applying the inequalities of Section~\ref{sec:ineq} to the estimated curve gives the weak law of large
+numbers in two forms:
+\begin{align*}
+  \text{(Chebyshev)} \quad & P\Big(\big|\hat g_X(N) - \bar g_X(N)\big| \ge \varepsilon\Big)
+    \le \frac{\sigma_X(N)^2}{M \varepsilon^2} \le \frac{1}{4 M \varepsilon^2}, \\
+  \text{(Hoeffding)} \quad & P\Big(\big|\hat g_X(N) - \bar g_X(N)\big| \ge \varepsilon\Big)
+    \le 2 e^{-2 M \varepsilon^2} .
+\end{align*}
+Both bounds go to zero as the number of seeds grows. Setting the Hoeffding bound below a chosen risk
+and solving for the number of seeds:
+\[
+  2 e^{-2 M \varepsilon^2} \le \delta \iff -2 M \varepsilon^2 \le \ln \frac{\delta}{2}
+  \iff M \ge \frac{\ln(2/\delta)}{2 \varepsilon^2} .
+\]
+In the form of Section~\ref{sec:onerun}, for every tolerance and every risk there is a number of
+seeds that achieves both:
+\[
+  \forall \varepsilon > 0 \ \forall \delta > 0 : \quad
+  M \ge \frac{\ln(2/\delta)}{2 \varepsilon^2}
+  \ \Longrightarrow\ P\Big(\big|\hat g_X(N) - \bar g_X(N)\big| \ge \varepsilon\Big) \le \delta .
+\]
+For example, to be within 0.05 of the expected curve with probability 0.95, the two inequalities ask
+for
+\[
+  \varepsilon = \delta = 0.05: \qquad
+  \frac{1}{4 \varepsilon^2 \delta} = \frac{1}{4 \cdot 0.0025 \cdot 0.05} = 2000 \ \text{seeds}, \qquad
+  \frac{\ln(2/\delta)}{2 \varepsilon^2} = \frac{\ln 40}{0.005} \approx 738 \ \text{seeds} .
+\]
+The strong law of large numbers, which is cited here and not derived, gives the stronger statement
+that the estimated curve converges to the expected curve with probability one:
+\[
+  P\Big(\lim_{M \to \infty} \hat g_X(N) = \bar g_X(N)\Big) = 1 .
+\]
+The expected curve is never computed exactly. The statements above say how close the estimate is and
+with what probability, which is what a confidence band reports. Each statement holds for one
+iteration at a time; for several checkpoints together the risks add, because the probability of a
+union is at most the sum of the probabilities:
+\[
+  P\Big(\exists\, i \le n : \big|\hat g_X(N_i) - \bar g_X(N_i)\big| \ge \varepsilon\Big)
+  \le \sum_{i=1}^{n} P\Big(\big|\hat g_X(N_i) - \bar g_X(N_i)\big| \ge \varepsilon\Big)
+  \le 2 n\, e^{-2 M \varepsilon^2} .
+\]
+The expected curve belongs to one algorithm with fixed hyperparameters; changing, for example, the
+learning rate changes the expected curve.
+
+\paragraph{Bias and variance.} Averaging the near-optimum approximation of Section~\ref{sec:onerun} over seeds gives
+\begin{gather*}
+  \bar g_X(N) \approx c_\gamma\, \mathbb{E}\big[e_X(\cdot, N)^2\big], \\
+  \mathbb{E}[e^2] = \big(\mathbb{E}[e]\big)^2 + \operatorname{Var}[e], \qquad
+  \mathbb{E}[e] = \mathbb{E}[k] - K^*, \qquad \operatorname{Var}[e] = \operatorname{Var}[k],
+\end{gather*}
+where the middle identity is the definition of variance rearranged, and the last two hold because
+the perturbation is the gain shifted by a constant. Together:
+\[
+  \bar g_X(N) \approx c_\gamma \Big[\big(\mathbb{E}[k_X(\cdot, N)] - K^*\big)^2
+  + \operatorname{Var}\big[k_X(\cdot, N)\big]\Big].
+\]
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Observation 3.} The expected gap splits into squared bias (settling at the wrong gain
+    on average) and variance (inconsistency across seeds).
+\end{itemize}
+
+\paragraph{Ordering across seeds.} From strongest to weakest:
+\[
+  \max_{\omega} g_A(\omega, N) \le \min_{\omega'} g_B(\omega', N), \qquad
+  \bar g_A(N) \le \bar g_B(N), \qquad
+  \lim_{N \to \infty} \bar g_A(N) \le \lim_{N \to \infty} \bar g_B(N),
+\]
+that is, band separation, expected-curve ordering, and floor ordering. Each implies the next. Band
+separation places every run of $A$ below every run of $B$, so averaging over both sets of seeds keeps
+the inequality; taking limits keeps it again:
+\begin{gather*}
+  g_A(\omega, N) \le \max_{\omega} g_A(\omega, N) \le \min_{\omega'} g_B(\omega', N)
+    \le g_B(\omega', N) \\
+  \Longrightarrow\ \bar g_A(N) \le \bar g_B(N)
+  \ \Longrightarrow\ \lim_{N \to \infty} \bar g_A(N) \le \lim_{N \to \infty} \bar g_B(N).
+\end{gather*}
+
+The converses, the same implications read backwards, fail. Each reversed arrow fails for its own
+reason, shown by one counterexample.
+
+\emph{Floor ordering does not imply expected-curve ordering.} A floor depends only on the tail of a
+curve, so two curves can end in one order after crossing early on:
+\[
+  \bar g_A(N) = 0.1 + \frac{0.8}{N}, \qquad \bar g_B(N) = 0.2 + \frac{0.1}{N}, \qquad N \ge 1: \qquad
+  \lim_{N \to \infty} \bar g_A = 0.1 < 0.2 = \lim_{N \to \infty} \bar g_B ,
+\]
+\[
+  \bar g_A(N) > \bar g_B(N) \iff 0.1 + \frac{0.8}{N} > 0.2 + \frac{0.1}{N}
+  \iff \frac{0.7}{N} > 0.1 \iff N < 7 .
+\]
+Both curves stay between zero and one, as gaps must. Algorithm $A$ starts much worse and overtakes
+$B$ only after 7 iterations; the floors alone hide this.
+
+\emph{Expected-curve ordering does not imply band separation.} An average can be ordered while
+individual runs are not. Suppose two seeds of each algorithm give these gaps at some iteration:
+\begin{center}
+  \begin{tabular}{lccc}
+    \toprule
+      & Seed 1 & Seed 2 & Average \\
+    \midrule
+    $A$ & 0.01 & 0.05 & 0.03 \\
+    $B$ & 0.02 & 0.06 & 0.04 \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+The averages are ordered, 0.03 below 0.04, but the worst run of $A$, 0.05, is above the best run of
+$B$, 0.02. The two sets of runs overlap, so not every run of $A$ beats every run of $B$.
+
+For an experiment, this means each claim must be checked on its own. Ordered floors say nothing about
+early training, and ordered averages say nothing about individual runs; only band separation supports
+a statement about every run at every iteration.
+
+%----------------------------------------------------------------------------------------------------
+\section{The inequalities of Chebyshev and Hoeffding}
+\label{sec:ineq}
+
+Both inequalities bound the probability that a random quantity lands far from its mean, and both are
+derived from Markov's inequality.
+
+\paragraph{Markov's inequality.} For a nonnegative random variable and a positive level, the
+indicator of the event is at most the variable divided by the level, and taking expectations gives
+the inequality:
+\[
+  Z \ge 0, \ a > 0: \qquad \mathbf{1}\{Z \ge a\} \le \frac{Z}{a}
+  \ \Longrightarrow\ P(Z \ge a) = \mathbb{E}\big[\mathbf{1}\{Z \ge a\}\big] \le \frac{\mathbb{E}[Z]}{a} .
+\]
+The pointwise inequality holds because, when the event happens, the left side is one and the right
+side is at least one, and otherwise the left side is zero and the right side is nonnegative.
+
+\paragraph{Chebyshev's inequality.} Apply Markov's inequality to the squared distance from the mean,
+with the squared tolerance as the level:
+\[
+  P\big(|Y - \mathbb{E}Y| \ge \varepsilon\big) = P\big((Y - \mathbb{E}Y)^2 \ge \varepsilon^2\big)
+  \le \frac{\mathbb{E}\big[(Y - \mathbb{E}Y)^2\big]}{\varepsilon^2} = \frac{\operatorname{Var} Y}{\varepsilon^2} .
+\]
+It needs only a finite variance. Applied to the estimated curve, whose variance is the variance of one
+run divided by the number of seeds, it gives the first bound of Section~\ref{sec:seeds}, which decays
+only like one over the number of seeds.
+
+\paragraph{Hoeffding's inequality.} For independent draws between zero and one with a common mean:
+\[
+  Y_1, \dots, Y_M \in [0, 1] \ \text{independent}, \quad \mathbb{E}[Y_j] = m: \qquad
+  P\Big(\Big|\frac{1}{M} \sum_{j=1}^{M} Y_j - m\Big| \ge \varepsilon\Big) \le 2 e^{-2 M \varepsilon^2} .
+\]
+The derivation has three steps.
+
+\emph{Step 1: Markov's inequality on an exponential.} For a positive parameter the exponential is
+increasing, so the event can be rewritten and Markov's inequality applied; independence turns the
+expectation of the product into the product of the expectations:
+\begin{align*}
+  s > 0: \quad P\Big(\sum_{j=1}^{M} (Y_j - m) \ge M \varepsilon\Big)
+  &= P\Big(e^{s \sum_j (Y_j - m)} \ge e^{s M \varepsilon}\Big)
+  \le e^{-s M \varepsilon}\, \mathbb{E}\Big[e^{s \sum_j (Y_j - m)}\Big] \\
+  &= e^{-s M \varepsilon} \prod_{j=1}^{M} \mathbb{E}\big[e^{s (Y_j - m)}\big] .
+\end{align*}
+
+\emph{Step 2: Hoeffding's lemma.} For one draw between zero and one with mean $m$:
+\[
+  \mathbb{E}\big[e^{s (Y - m)}\big] \le e^{s^2 / 8} .
+\]
+The exponential is convex, so on the interval from zero to one it lies below its chord. Taking
+expectations bounds the exponential moment by the exponential of a function $L$:
+\begin{gather*}
+  e^{s y} \le (1 - y) + y\, e^{s} \ \ (0 \le y \le 1)
+  \ \Longrightarrow\ \mathbb{E}\big[e^{s Y}\big] \le 1 - m + m e^{s}
+  \ \Longrightarrow\ \mathbb{E}\big[e^{s (Y - m)}\big] \le e^{L(s)}, \\
+  L(s) = -s m + \ln\big(1 - m + m e^{s}\big) .
+\end{gather*}
+Differentiating $L$, with $q$ the fraction shown, which lies between zero and one:
+\begin{gather*}
+  q(s) = \frac{m e^{s}}{1 - m + m e^{s}}, \qquad L'(s) = -m + q(s), \qquad
+  q'(s) = q(s)\big(1 - q(s)\big), \\
+  L(0) = 0, \qquad L'(0) = 0, \qquad L''(s) = q(s)\big(1 - q(s)\big) \le \frac{1}{4} ,
+\end{gather*}
+where the bound on the second derivative is the same parabola argument as in
+Section~\ref{sec:seeds}. Taylor's theorem with the remainder term then gives the lemma:
+\[
+  L(s) = L(0) + L'(0)\, s + \frac{L''(\xi)}{2}\, s^2 \le \frac{s^2}{8}
+  \quad \text{for some } \xi \text{ between } 0 \text{ and } s .
+\]
+
+\emph{Step 3: choose the parameter.} Combining the first two steps and minimizing the exponent over
+the parameter:
+\begin{gather*}
+  P\Big(\frac{1}{M} \sum_{j=1}^{M} Y_j - m \ge \varepsilon\Big) \le e^{-s M \varepsilon + M s^2 / 8}, \\
+  \frac{d}{ds}\Big(-s M \varepsilon + \frac{M s^2}{8}\Big) = 0 \iff s = 4 \varepsilon
+  \ \Longrightarrow\ e^{-4 M \varepsilon^2 + 2 M \varepsilon^2} = e^{-2 M \varepsilon^2} .
+\end{gather*}
+The same argument applied to one minus each draw bounds the lower tail by the same amount, and adding
+the two tails gives the factor two.
+
+\paragraph{Comparison.} The number of seeds each inequality asks for, with the variance bounded by one
+quarter in Chebyshev's case:
+\[
+  \text{Chebyshev: } \ M \ge \frac{1}{4 \varepsilon^2 \delta}, \qquad
+  \text{Hoeffding: } \ M \ge \frac{\ln(2/\delta)}{2 \varepsilon^2} .
+\]
+\begin{itemize}[leftmargin=*]
+  \item Chebyshev needs only a finite variance; Hoeffding needs the draws to be bounded, which the gap
+    provides.
+  \item Halving the risk doubles Chebyshev's count but adds only a constant to Hoeffding's, because
+    the risk enters through a logarithm.
+  \item Hoeffding uses only the range of the gap, not its actual spread. When the runs of an algorithm
+    are consistent, so the variance is far below one quarter, Chebyshev with an estimated variance, or
+    a variance-aware inequality such as Bernstein's, can ask for fewer seeds.
+\end{itemize}
+
+%----------------------------------------------------------------------------------------------------
+\section{A possible experiment}
+
+\begin{itemize}[leftmargin=*]
+  \item Train $A$, $B$ and $C$ on the scalar system with reward $r_t = -(x_t^2 + u_t^2)$, discount
+    $\gamma = 0.99$ and linear policies $u = -kx$; a neural-network variant is evaluated by
+    simulation. The baseline $K^*$, $J^*$ is computed with the same $\gamma$.
+  \item Keep tuning seeds separate from evaluation seeds.
+  \item Record $k_X(\omega, N)$ and $g_X(\omega, N)$ at checkpoints; gains outside
+    $\mathcal{K}_\gamma$ score one, and the fraction of unstable gains, $|1 - k| \ge 1$, is reported.
+  \item Report $\hat g_X$ with confidence bands, the floors, the bias and variance of the final gains,
+    the crossing times, and which ordering of Section~\ref{sec:seeds} holds.
+\end{itemize}
+
+%----------------------------------------------------------------------------------------------------
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Discounting.} $K^*$, $J^*$, $\mathcal{K}_\gamma$ and $c_\gamma$ depend on $\gamma$,
+    so the baseline must use exactly the agents' $\gamma$. For $\gamma < 1$ finite cost does not
+    imply stability, and in higher dimensions the discounted optimal gain itself need not stabilize
+    the undiscounted system; stability is checked separately.
+  \item \textbf{Noise.} $J$ becomes an expectation; in the scalar case the shape of $g$ is unchanged.
+  \item \textbf{Linear policies.} They give the agent the form of the solution; the neural variant
+    tests the realistic case.
+  \item \textbf{Locality.} The quadratic approximation holds only near $K^*$, and the exact formula
+    for the gap holds only for these parameter values.
+  \item \textbf{Higher dimensions.} $K$ becomes a matrix and the expansion involves a Hessian.
+  \item \textbf{SAC.} Evaluate it by its mean action to avoid the effect of the entropy bonus.
+\end{itemize}
+
+%----------------------------------------------------------------------------------------------------
+\appendix
+
+\section{Proximal Policy Optimization (PPO)}
+
+PPO (Schulman et al.\ 2017) is an on-policy actor-critic algorithm. It alternates between collecting
+data with the current policy and taking several gradient steps on a clipped objective that keeps the
+new policy close to the one that collected the data.
+
+\paragraph{Components.} A stochastic policy with parameters $\theta$ and a value function with
+parameters $\phi$:
+\[
+  \pi_\theta(u \mid x), \qquad V_\phi(x) .
+\]
+
+\paragraph{Probability ratio.} How much more or less likely the new policy makes an action than the
+policy that collected it:
+\[
+  \rho_t(\theta) = \frac{\pi_\theta(u_t \mid x_t)}{\pi_{\theta_{\mathrm{old}}}(u_t \mid x_t)} .
+\]
+
+\paragraph{Advantage estimate.} The temporal-difference errors of the value function, combined by
+generalized advantage estimation (Schulman et al.\ 2016) with weight $\lambda$ and the discount
+$\gamma$ of Section~\ref{sec:problem}, the same one used for the baseline:
+\[
+  \delta_t = r_t + \gamma V_\phi(x_{t+1}) - V_\phi(x_t), \qquad
+  \hat A_t = \sum_{l=0}^{T - t - 1} (\gamma \lambda)^l\, \delta_{t+l}, \qquad
+  \hat R_t = \hat A_t + V_\phi(x_t) .
+\]
+
+\paragraph{Clipped policy objective.} With clipping parameter $\varepsilon_{\mathrm{clip}}$:
+\[
+  L^{\mathrm{CLIP}}(\theta) = \hat{\mathbb{E}}_t\Big[\min\big(\rho_t(\theta)\, \hat A_t,\
+  \operatorname{clip}\big(\rho_t(\theta),\, 1 - \varepsilon_{\mathrm{clip}},\,
+  1 + \varepsilon_{\mathrm{clip}}\big)\, \hat A_t\big)\Big].
+\]
+
+\paragraph{Value loss and entropy bonus.}
+\[
+  L^{V}(\phi) = \hat{\mathbb{E}}_t\Big[\big(V_\phi(x_t) - \hat R_t\big)^2\Big], \qquad
+  S[\pi_\theta](x_t) = -\int \pi_\theta(u \mid x_t) \log \pi_\theta(u \mid x_t)\, du .
+\]
+
+\paragraph{Combined objective.} Maximized with weights $c_1$ and $c_2$:
+\[
+  L(\theta, \phi) = \hat{\mathbb{E}}_t\Big[ L^{\mathrm{CLIP}}_t(\theta) - c_1 L^{V}_t(\phi)
+  + c_2\, S[\pi_\theta](x_t) \Big].
+\]
+
+\paragraph{Algorithm.}
+\begin{enumerate}[leftmargin=*]
+  \item Initialize the policy parameters $\theta$ and the value parameters $\phi$.
+  \item For each iteration:
+    \begin{enumerate}
+      \item Set the data-collecting policy to the current one, $\theta_{\mathrm{old}} \leftarrow \theta$.
+      \item Run the policy for $T$ time steps (in one or more parallel environments) and store the
+        states, controls and rewards.
+      \item Compute the temporal-difference errors, the advantage estimates and the return targets
+        from the stored data.
+      \item For $E$ epochs, split the data into minibatches and, on each minibatch, take a gradient
+        ascent step on the combined objective with respect to $\theta$ and $\phi$.
+    \end{enumerate}
+  \item Return the final policy.
+\end{enumerate}
+
+%----------------------------------------------------------------------------------------------------
+\section*{References}
+
+\begin{itemize}[leftmargin=*]
+  \item Agarwal, R., Schwarzer, M., Castro, P.~S., Courville, A., and Bellemare, M.~G. (2021). Deep
+    reinforcement learning at the edge of the statistical precipice. \emph{NeurIPS 2021}.
+  \item Agyei, K., Sarhadi, P., and Polani, D. (2025).
+    \href{https://arxiv.org/html/2507.08196}{Deep reinforcement learning in applied control:
+    Challenges, analysis, and insights}. arXiv:2507.08196.
+  \item Fazel, M., Ge, R., Kakade, S.~M., and Mesbahi, M. (2018).
+    \href{https://proceedings.mlr.press/v80/fazel18a.html}{Global convergence of policy gradient
+    methods for the linear quadratic regulator}. \emph{ICML 2018}.
+  \item Henderson, P., Islam, R., Bachman, P., Pineau, J., Precup, D., and Meger, D. (2018). Deep
+    reinforcement learning that matters. \emph{AAAI 2018}.
+  \item Mania, H., Guy, A., and Recht, B. (2018).
+    \href{https://arxiv.org/pdf/1803.07055}{Simple random search provides a competitive approach to
+    reinforcement learning}. arXiv:1803.07055.
+  \item Recht, B. (2019). \href{https://arxiv.org/pdf/1806.09460}{A tour of reinforcement learning:
+    The view from continuous control}. \emph{Annual Review of Control, Robotics, and Autonomous
+    Systems}. arXiv:1806.09460.
+  \item Schulman, J., Moritz, P., Levine, S., Jordan, M., and Abbeel, P. (2016). High-dimensional
+    continuous control using generalized advantage estimation. \emph{ICLR 2016}. arXiv:1506.02438.
+  \item Schulman, J., Wolski, F., Dhariwal, P., Radford, A., and Klimov, O. (2017). Proximal policy
+    optimization algorithms. arXiv:1707.06347.
+  \item Tu, S., and Recht, B. (2019). \href{https://arxiv.org/pdf/1812.03565}{The gap between
+    model-based and model-free methods on the linear quadratic regulator: An asymptotic viewpoint}.
+    arXiv:1812.03565.
+\end{itemize}
+
+\end{document}
