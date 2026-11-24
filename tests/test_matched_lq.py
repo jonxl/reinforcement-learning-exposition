@@ -41,8 +41,8 @@ def test_published_results_keep_linear_identity_and_bounds(tmp_path):
     output = tmp_path/'converted'
     import_published(tmp_path/'source', output)
     saved = json.loads((output/'problems.json').read_text())
-    assert saved['algorithms'] == ['ppo_linear_legacy', 'tdmpc2_lq']
-    with np.load(output/'lqr_bounded'/'tdmpc2_lq'/'arrays.npz') as data:
+    assert saved['algorithms'] == ['ppo-lg-published', 'td-mpc2-lg']
+    with np.load(output/'lqr_bounded'/'td-mpc2-lg'/'arrays.npz') as data:
         np.testing.assert_array_equal(data['seeds'], [7,9])
         np.testing.assert_array_equal(data['gaps'][:,0], [.2,.4])
         np.testing.assert_array_equal(data['diverged'][:,0], [False,True])

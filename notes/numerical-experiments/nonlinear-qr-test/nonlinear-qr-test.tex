@@ -203,11 +203,11 @@ the planner is conditional on those streams.
 \begin{verbatim}
 uv run --extra lq main.py matched-lq --seeds 8 --steps 100000 \
   --checkpoints 10 --workers 4 \
-  --algos ppo monte_carlo tdmpc2_lq ppo_linear \
+  --algos ppo-nn ppo-lg td-mpc2-nn td-mpc2-lg monte_carlo \
   --out results/matched_lq_new
 \end{verbatim}
 The published bounded linear-PPO comparison is retained under the separate
-\texttt{ppo\_linear\_legacy} report identity; it must not be interpreted as a
+\texttt{ppo-lg-published} report identity; it must not be interpreted as a
 neural-PPO result. Its original raw results can be reported with
 \texttt{uv run main.py report results/lq\_comparison}.
 TD-MPC2-LQ is a scalar structural adaptation, not standard neural TD-MPC2, and
@@ -215,7 +215,21 @@ does not yet support the generated two-state NLQR problems. The NLQR suite rejec
 that combination explicitly rather than modifying its problems or references.
 Equal interaction budgets do not imply equal optimizer work or reset schedules.
 
-\paragraph{Primary method and optional baseline.}
+\paragraph{Algorithm families and neural variants.}
+The canonical variant names are \texttt{ppo-nn}, \texttt{ppo-lg},
+\texttt{td-mpc2-nn}, and \texttt{td-mpc2-lg}. NN means neural actors and
+neural critics. LG describes the linear-Gaussian actor or actor prior, with
+structured quadratic critics. Neural TD-MPC2 additionally learns a neural
+encoder, latent dynamics, and a distributional stage-cost model. Its critic
+ensemble uses distributional Bellman targets and target networks; its actor
+prior supplies trajectories to a receding-horizon sampling planner.
+This CPU benchmark implementation uses tanh networks, the problem's discount,
+and unsquashed proposals for unbounded benchmarks. It is a repository variant,
+not an exact reproduction of the upstream implementation. Evaluation alone uses
+the known optimal cost. Both neural variants support generated NLQR problems;
+the structured TD variant remains restricted to the bounded scalar comparison.
+
+\paragraph{PPO architecture comparison.}
 The primary PPO benchmark uses a Gaussian policy with a neural mean and a neural
 critic on both LQR and generated NLQR problems. PPO specifies the policy update;
 it does not require a particular actor or critic architecture. Linear PPO is an

@@ -109,7 +109,8 @@ def _report(run_dirs: list[Path], out: Path, delta: float) -> None:
 
 def cmd_run(args: argparse.Namespace) -> None:
     out = rollouts.run(args.algo, args.problem, args.seeds, args.master_seed, args.gamma, args.workers,
-                       _parse_overrides(args.set), tag=args.tag, problem_params=_parse_overrides(args.problem_set))
+                       _parse_overrides(args.set), tag=args.tag, problem_params=_parse_overrides(args.problem_set),
+                       device=args.device, seed_batch_size=args.seed_batch_size)
     print(f"saved {out}/")
 
 
@@ -128,6 +129,8 @@ def cmd_report(args: argparse.Namespace) -> None:
 
 def cmd_crude(args: argparse.Namespace) -> None:
     """A quick, small estimate: run each algorithm on a few seeds, then every metric and figure."""
+    from algos.families import canonical_algorithms
+    args.algos = canonical_algorithms(args.algos)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     root = rollouts.RESULTS_DIR / f"crude_{stamp}_{args.problem}"
     overrides = _parse_overrides(args.set)
@@ -135,7 +138,8 @@ def cmd_crude(args: argparse.Namespace) -> None:
     for algo in args.algos:
         print(f"running {algo} on {args.problem}: {args.seeds} seeds ...", flush=True)
         d = rollouts.run(algo, args.problem, args.seeds, args.master_seed, args.gamma, args.workers,
-                         overrides, out_dir=root / algo, problem_params=_parse_overrides(args.problem_set))
+                         overrides, out_dir=root / algo, problem_params=_parse_overrides(args.problem_set),
+                       device=args.device, seed_batch_size=args.seed_batch_size)
         run_dirs.append(d)
     _report(run_dirs, root / "report", args.delta)
 
@@ -144,15 +148,26 @@ def cmd_suite(args):
     from utils.suite import run_suite
     out = args.out or rollouts.RESULTS_DIR / f"suite_{datetime.now():%Y%m%d-%H%M%S}"
     run_suite(out, args.count, args.seeds, args.steps, args.workers,
-              args.generator_seed, args.master_seed, args.gamma, args.algos, args.profile, args.checkpoints)
+              args.generator_seed, args.master_seed, args.gamma, args.algos, args.profile, args.checkpoints, args.device, args.seed_batch_size)
 
 
 def cmd_matched_lq(args):
     from utils.matched_lq import run_matched
     out = args.out or rollouts.RESULTS_DIR / f'matched_lq_{datetime.now():%Y%m%d-%H%M%S}'
     report = run_matched(out, args.algos, args.seeds, args.steps, args.checkpoints,
-                         args.workers, args.master_seed)
+                         args.workers, args.master_seed, args.device, args.seed_batch_size)
     print(f'Benchmark report: {report}/index.html')
+
+
+def add_device_args(parser):
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--cpu', dest='device', action='store_const', const='cpu',
+                       help='force CPU execution (default)')
+    group.add_argument('--gpu', dest='device', action='store_const', const='gpu',
+                       help='use detected CUDA GPUs for neural variants; fall back to CPU if unavailable')
+    parser.set_defaults(device='cpu')
+    parser.add_argument('--seed-batch-size', type=int, default=None,
+                        help='independent seeds per job (CUDA default: 16); separate from total --seeds')
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -160,14 +175,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser('matched-lq', help='compare neural PPO, Monte Carlo and scalar TD-MPC2-LQ under matched action bounds')
-    p.add_argument('--algos', nargs='+', choices=sorted(rollouts.ALGOS),
-                   default=['ppo', 'monte_carlo', 'tdmpc2_lq'])
+    p.add_argument('--algos', nargs='+', choices=sorted(rollouts.ALGO_CHOICES),
+                   default=['ppo-nn', 'monte_carlo', 'td-mpc2-lg'])
     p.add_argument('--seeds', type=int, default=3)
     p.add_argument('--steps', type=int, default=10000)
     p.add_argument('--checkpoints', type=int, default=5)
     p.add_argument('--workers', type=int, default=1)
     p.add_argument('--master-seed', type=int, default=0)
     p.add_argument('--out', default=None)
+    add_device_args(p)
     p.set_defaults(func=cmd_matched_lq)
 
     p = sub.add_parser("baseline", help="print the exact optimum of a problem")
@@ -184,10 +200,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_budget)
 
     def add_run_args(p, multi: bool):
+        add_device_args(p)
         if multi:
-            p.add_argument("--algos", nargs="+", default=list(rollouts.DEFAULT_BENCHMARK_ALGOS), choices=sorted(rollouts.ALGOS))
+            p.add_argument("--algos", nargs="+", default=list(rollouts.DEFAULT_BENCHMARK_ALGOS), choices=sorted(rollouts.ALGO_CHOICES))
         else:
-            p.add_argument("--algo", required=True, choices=sorted(rollouts.ALGOS))
+            p.add_argument("--algo", required=True, choices=sorted(rollouts.ALGO_CHOICES))
         p.add_argument("--problem", choices=list(rollouts.PROBLEMS), default="lqr")
         p.add_argument("--gamma", type=float, default=0.99)
         p.add_argument("--master-seed", type=int, default=0)
@@ -214,9 +231,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--delta", type=float, default=0.05)
     p.set_defaults(func=cmd_crude)
     p = sub.add_parser("suite", help="generate exact NLQR problems and benchmark neural PPO and Monte Carlo")
-    p.add_argument("--algos", nargs="+", choices=sorted(rollouts.ALGOS),
+    p.add_argument("--algos", nargs="+", choices=sorted(rollouts.ALGO_CHOICES),
                    default=list(rollouts.DEFAULT_BENCHMARK_ALGOS),
-                   help="default: ppo monte_carlo; add ppo_linear for the restricted-policy baseline")
+                   help="default: ppo-nn monte_carlo; add td-mpc2-nn or ppo-lg to compare variants")
     p.add_argument("--count", type=int, default=10)
     p.add_argument("--profile", choices=["moderate", "aggressive"], default="moderate")
     p.add_argument("--checkpoints", type=int, default=4)
@@ -227,6 +244,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--master-seed", type=int, default=0)
     p.add_argument("--gamma", type=float, default=.99)
     p.add_argument("--out", default=None, help="new output directory (refuses overwrite)")
+    add_device_args(p)
     p.set_defaults(func=cmd_suite)
     return parser
 

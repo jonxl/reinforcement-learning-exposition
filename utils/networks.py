@@ -31,7 +31,7 @@ def _orthogonal(rng: np.random.Generator, n_in: int, n_out: int, gain: float) ->
     return gain * (q if n_in >= n_out else q.T)
 
 
-def init_mlp(rngs: list[np.random.Generator], sizes: tuple[int, ...], out_gain: float = 1.0) -> Params:
+def init_mlp(rngs: list[np.random.Generator], sizes: tuple[int, ...], out_gain: float = 1.0, device: str = "cpu") -> Params:
     """Weights of M tanh MLPs with layer widths ``sizes``, seed j drawn from ``rngs[j]`` alone.
 
     Orthogonal initialization with gain sqrt(2) on hidden layers and ``out_gain`` on the output layer
@@ -42,8 +42,8 @@ def init_mlp(rngs: list[np.random.Generator], sizes: tuple[int, ...], out_gain: 
     for layer, (n_in, n_out) in enumerate(zip(sizes[:-1], sizes[1:])):
         gain = out_gain if layer == last else np.sqrt(2.0)
         W = np.stack([_orthogonal(rng, n_in, n_out, gain) for rng in rngs])
-        params.append(torch.tensor(W, dtype=DTYPE, requires_grad=True))
-        params.append(torch.zeros((len(rngs), n_out), dtype=DTYPE, requires_grad=True))
+        params.append(torch.tensor(W, dtype=DTYPE, device=device, requires_grad=True))
+        params.append(torch.zeros((len(rngs), n_out), dtype=DTYPE, device=device, requires_grad=True))
     return params
 
 
@@ -62,7 +62,7 @@ def as_policy(params: Params):
 
     def policy(obs: np.ndarray) -> np.ndarray:
         with torch.no_grad():
-            return mlp(params, torch.as_tensor(obs, dtype=DTYPE)[:, None, :])[:, 0, :].numpy()
+            return mlp(params, torch.as_tensor(obs, dtype=DTYPE, device=params[0].device)[:, None, :])[:, 0, :].cpu().numpy()
 
     return policy
 
@@ -76,7 +76,7 @@ def clip_by_seed(grads: list[torch.Tensor], max_norm: float) -> list[torch.Tenso
 
 def finite_by_seed(grads: list[torch.Tensor]) -> torch.Tensor:
     """Per seed: every gradient entry is finite. A seed that fails skips the update."""
-    ok = torch.ones(grads[0].shape[0], dtype=torch.bool)
+    ok = torch.ones(grads[0].shape[0], dtype=torch.bool, device=grads[0].device)
     for g in grads:
         ok &= torch.isfinite(g.reshape(g.shape[0], -1)).all(dim=1)
     return ok

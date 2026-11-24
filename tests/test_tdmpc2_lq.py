@@ -90,7 +90,7 @@ def test_update_batch_isolation_and_target_schedule():
 
 
 def test_bounded_ppo_keeps_latent_samples_but_applies_clipped_actions(monkeypatch):
-    from algos import ppo_lq_legacy as ppo
+    from algos import ppo_lg_published as ppo
     from utils import envs
     original_step=envs.Env.step
     original_objective=ppo.objective_and_grads

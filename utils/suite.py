@@ -6,12 +6,14 @@ from pathlib import Path
 import numpy as np
 
 import rollouts
+from algos.families import canonical_algorithms
 from utils import envs
 from utils.nlqr import EnergyNLQRProblem, generate_parameters, validate
 
 
 def run_suite(out, count=10, seeds=2, steps=4096, workers=1, generator_seed=0,
-              master_seed=0, gamma=.99, algorithms=rollouts.DEFAULT_BENCHMARK_ALGOS, profile="moderate", checkpoints=4):
+              master_seed=0, gamma=.99, algorithms=rollouts.DEFAULT_BENCHMARK_ALGOS, profile="moderate", checkpoints=4, device="cpu", seed_batch_size=None):
+    algorithms = canonical_algorithms(algorithms)
     if min(count, seeds, steps, workers, checkpoints) < 1 or steps % 512:
         raise ValueError("count, seeds and workers must be positive; steps must be a positive multiple of 512")
     if not 0 < gamma < 1:
@@ -19,7 +21,7 @@ def run_suite(out, count=10, seeds=2, steps=4096, workers=1, generator_seed=0,
     if not algorithms or len(set(algorithms)) != len(algorithms) or set(algorithms) - set(rollouts.ALGOS):
         raise ValueError("algorithms must be distinct registered names")
     root = Path(out)
-    if 'tdmpc2_lq' in algorithms:
+    if 'td-mpc2-lg' in algorithms:
         raise ValueError('TD-MPC2-LQ is a bounded scalar adaptation, not a generated NLQR learner; use matched-lq')
     root.mkdir(parents=True, exist_ok=False)
     parameters = generate_parameters(count, generator_seed, gamma, profile)
@@ -51,22 +53,25 @@ def run_suite(out, count=10, seeds=2, steps=4096, workers=1, generator_seed=0,
     for name, kind, params in cases:
         for algo in algorithms:
             config = dict(common)
-            if algo == 'ppo':
+            if algo == 'ppo-nn':
                 config.update(hidden_size=32, minibatch_size=128)
-            elif algo == 'ppo_linear':
+            elif algo == 'ppo-lg':
                 config.update(n_minibatches=4)
+            elif algo == 'td-mpc2-nn':
+                config = dict(total_steps=steps, n_checkpoints=checkpoints, eval_horizon=envs.EVAL_HORIZON)
             else:
                 config = dict(total_steps=steps, horizon=128, n_checkpoints=checkpoints,
                               eval_horizon=envs.EVAL_HORIZON)
             print(f"{name}: {algo}, {seeds} seeds x {steps} steps", flush=True)
             directory = rollouts.run(algo, kind, seeds, master_seed, gamma, workers,
-                                     config, out_dir=root / name / algo, problem_params=params)
+                                     config, out_dir=root / name / algo, problem_params=params, device=device, seed_batch_size=seed_batch_size)
             arrays, meta = rollouts.load(directory)
             gaps = rollouts.to_curves(arrays, meta).gaps
             row = dict(problem=name, algorithm=algo, initial_mean_gap=float(gaps[:, 0].mean()),
                        final_mean_gap=float(gaps[:, -1].mean()), final_min_gap=float(gaps[:, -1].min()),
                        final_max_gap=float(gaps[:, -1].max()),
-                       final_unstable_fraction=float(arrays['unstable'][:, -1].mean()),
+                       final_unstable_fraction=(float(arrays['unstable'][:, -1].mean())
+                                                if 'unstable' in arrays else None),
                        training_diverged_fraction=(None if algo == 'monte_carlo' else float(arrays['diverged'][:, -1].mean())),
                        wall_seconds=meta['wall_seconds'], run=str(directory))
             rows.append(row)
@@ -109,12 +114,11 @@ def plot_suite(root, yscale="auto"):
         rows = int(np.ceil(len(cases) / cols))
         fig, axes = plt.subplots(rows, cols, figsize=(12, 3.5 * rows + 1.1), squeeze=False)
         for ax, case in zip(axes.flat, cases):
-            labels = {'ppo_linear': 'PPO: linear policy', 'ppo': 'PPO: neural policy', 'monte_carlo': 'Monte Carlo: table policy'}
+            from utils.graphs import label, color
             for algo in algorithms:
-                label = labels[algo]
                 steps, gap = curves[case['id'], algo]
-                ax.plot(steps, gap, marker='o', markersize=3, label=label,
-                        color={'ppo_linear': '#1baf7a', 'ppo': '#eb6834', 'monte_carlo': '#2a78d6'}[algo])
+                ax.plot(steps, gap, marker='o', markersize=3, label=label(algo),
+                        color=color(algo))
             if nonlinear_group:
                 index = nonlinear.index(case) + 1
                 p = case['problem_params']

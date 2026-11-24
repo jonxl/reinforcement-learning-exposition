@@ -12,14 +12,18 @@ from matplotlib.ticker import PercentFormatter, MaxNLocator
 
 from utils.graphs import color, label
 from utils.plot_scales import adaptive_y
+from algos.families import canonical_name
 
 ALGORITHM_ROLES = {
     'tdmpc2_lq': 'Bounded scalar TD-MPC2-LQ adaptation; not standard neural TD-MPC2. Evaluation averages costs over three fixed planner streams.',
     'ppo_linear_legacy': 'Published bounded linear PPO with quadratic critic; preserved separately from neural PPO.',
-    'ppo': 'Primary PPO benchmark: Gaussian neural actor and neural critic.',
-    'ppo_linear': 'Optional restricted-policy baseline: linear-Gaussian actor and quadratic-feature critic.',
+    'ppo': 'PPO neural variant: Gaussian neural actor and neural critic.',
+    'ppo_linear': 'PPO linear-Gaussian variant: linear-Gaussian actor and quadratic-feature critic.',
     'monte_carlo': 'Tabular Monte Carlo control baseline.',
 }
+ALGORITHM_ROLES['td-mpc2-nn'] = 'Neural encoder, dynamics, cost model, Gaussian actor prior and distributional critic ensemble; sampling planner.'
+ALGORITHM_ROLES['ppo-lg-published'] = ALGORITHM_ROLES['ppo_linear_legacy']
+ALGORITHM_ROLES.update({canonical_name(name): role for name, role in list(ALGORITHM_ROLES.items())})
 
 
 def tex_escape(value):

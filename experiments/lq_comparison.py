@@ -14,7 +14,7 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 import numpy as np
-from algos import ppo_lq_legacy as ppo
+from algos import ppo_lg_published as ppo
 from algos.tdmpc2_lq import Learner, Config
 from algos.lq_planner import plan
 from utils.baseline import scalar_lqr
@@ -224,7 +224,7 @@ def main():
     cfg=Config()
     if args.structure_only:
         cfg=Config(candidates=512,elites=64,prior_candidates=24,iterations=6,batch=256,update_every=1)
-    sources=['algos/tdmpc2_lq.py','algos/lq_planner.py','algos/ppo_lq_legacy.py','experiments/lq_comparison.py']
+    sources=['algos/tdmpc2_lq.py','algos/lq_planner.py','algos/ppo_lg_published.py','experiments/lq_comparison.py']
     manifest=dict(arguments=vars(args),seeds=seeds,td_config=asdict(cfg),
                   action_bound=BOUND,gamma=GAMMA,eval_seeds=EVAL_SEEDS,tail_tolerance=TAIL_TOL,
                   python=platform.python_version(),numpy=np.__version__,platform=platform.platform(),

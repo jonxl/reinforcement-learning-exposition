@@ -21,29 +21,30 @@ from __future__ import annotations
 import json
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor
+import multiprocessing as mp
+from contextlib import ExitStack
+from concurrent.futures import ProcessPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import fields, replace
 from datetime import datetime
-from importlib import import_module
 from pathlib import Path
 
 import numpy as np
 
 from utils import envs, seeds
 from utils.learning_curves import LearningCurves
+from utils.devices import select_devices
+from algos.families import VARIANTS, ALIASES, canonical_name, get_algorithm
 
 RESULTS_DIR = Path("results")
 
-ALGOS = {"monte_carlo": "algos.monte_carlo", "ppo": "algos.ppo", "ppo_linear": "algos.ppo_linear"}
-ALGOS['tdmpc2_lq'] = 'algos.tdmpc2_benchmark'
-DEFAULT_BENCHMARK_ALGOS = ("ppo", "monte_carlo")
+ALGOS = dict(VARIANTS)
+ALGO_CHOICES = tuple(VARIANTS) + tuple(ALIASES)
+DEFAULT_BENCHMARK_ALGOS = ("ppo-nn", "monte_carlo")
 PROBLEMS = tuple(envs.PROBLEMS)
 
 
 def get_algo(name: str):
-    if name not in ALGOS:
-        raise KeyError(f"unknown algorithm {name!r}; known: {sorted(ALGOS)}")
-    return import_module(ALGOS[name])
+    return get_algorithm(name)
 
 
 def problem_of(meta: dict) -> envs.Problem:
@@ -64,9 +65,37 @@ def make_config(algo, overrides: dict | None):
 
 def _run_chunk(algo_name: str, problem_name: str, gamma: float, problem_params: dict, chunk: np.ndarray, cfg) -> dict:
     algo = get_algo(algo_name)
-    if hasattr(algo, 'SUPPORTED_PROBLEMS') and problem_name not in algo.SUPPORTED_PROBLEMS:
-        raise ValueError(f'{algo_name} supports only {algo.SUPPORTED_PROBLEMS}; use matched-lq')
+    algo.validate_problem(problem_name)
     return algo.train(envs.make_problem(problem_name, gamma, **problem_params), chunk, cfg)
+
+
+def _gpu_batches(algo_name, problem_name, gamma, problem_params, chunks, cfg, devices):
+    """One spawned process per GPU; each pulls another seed batch when idle."""
+    parts = [None] * len(chunks)
+    jobs = iter(enumerate(chunks))
+    with ExitStack() as stack:
+        pools = [(device, stack.enter_context(ProcessPoolExecutor(
+            max_workers=1, mp_context=mp.get_context('spawn')))) for device in devices]
+        pending = {}
+
+        def submit(device, pool):
+            job = next(jobs, None)
+            if job is None:
+                return
+            index, chunk = job
+            future = pool.submit(_run_chunk, algo_name, problem_name, gamma,
+                                 problem_params, chunk, replace(cfg, device=device))
+            pending[future] = (index, device, pool)
+
+        for device, pool in pools:
+            submit(device, pool)
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                index, device, pool = pending.pop(future)
+                parts[index] = future.result()
+                submit(device, pool)
+    return parts
 
 
 def run(
@@ -80,21 +109,44 @@ def run(
     out_dir: Path | None = None,
     tag: str = "",
     problem_params: dict | None = None,
+    device: str = "cpu",
+    seed_batch_size: int | None = None,
 ) -> Path:
     """Run ``n_seeds`` evaluation seeds of one algorithm on one problem and save the results."""
+    algo_name = canonical_name(algo_name)
     algo = get_algo(algo_name)
+    algo.validate_problem(problem_name)
+    if overrides and 'device' in overrides:
+        raise ValueError('Select execution with --cpu/--gpu, not --set device=...')
+    if n_seeds < 1 or (workers is not None and workers < 1):
+        raise ValueError('seeds and workers must be positive')
+    if seed_batch_size is not None and seed_batch_size < 1:
+        raise ValueError('seed_batch_size must be positive')
+    devices = select_devices(device, algo_name)
     cfg = make_config(algo, overrides)
     problem_params = dict(problem_params or {})
     problem = envs.make_problem(problem_name, gamma, **problem_params)
     eval_seeds = seeds.split_seeds(n_tune=0, n_eval=n_seeds, master_seed=master_seed).eval
 
-    workers = workers or min(os.cpu_count() or 1, n_seeds)
-    chunks = [c for c in np.array_split(eval_seeds, workers) if len(c)]
-    t0 = time.perf_counter()
-    if len(chunks) == 1:
-        parts = [_run_chunk(algo_name, problem_name, gamma, problem_params, chunks[0], cfg)]
+    gpu = devices[0].startswith('cuda:')
+    if gpu:
+        batch_size = seed_batch_size or 16
+        chunks = [eval_seeds[i:i+batch_size] for i in range(0, n_seeds, batch_size)]
+        devices = devices[:len(chunks)]
+        actual_workers = len(devices)
     else:
-        with ProcessPoolExecutor(max_workers=len(chunks)) as pool:
+        actual_workers = workers or min(os.cpu_count() or 1, n_seeds)
+        chunks = ([eval_seeds[i:i+seed_batch_size] for i in range(0, n_seeds, seed_batch_size)]
+                  if seed_batch_size else [c for c in np.array_split(eval_seeds, actual_workers) if len(c)])
+        actual_workers = min(actual_workers, len(chunks))
+    print(f'{algo_name}: devices={devices}, workers={actual_workers}, seed batches={len(chunks)}', flush=True)
+    t0 = time.perf_counter()
+    if gpu:
+        parts = _gpu_batches(algo_name, problem_name, gamma, problem_params, chunks, cfg, devices)
+    elif actual_workers == 1:
+        parts = [_run_chunk(algo_name, problem_name, gamma, problem_params, chunk, cfg) for chunk in chunks]
+    else:
+        with ProcessPoolExecutor(max_workers=actual_workers) as pool:
             futures = [pool.submit(_run_chunk, algo_name, problem_name, gamma, problem_params, c, cfg) for c in chunks]
             parts = [f.result() for f in futures]
     wall = time.perf_counter() - t0
@@ -109,12 +161,16 @@ def run(
 
     meta = {
         "algo": algo_name,
+        "algorithm_family": algo.family,
+        "algorithm_variant": algo.variant,
         "problem": problem_name,
         "problem_params": problem_params,
         "gamma": gamma,
         "n_seeds": n_seeds,
         "master_seed": master_seed,
-        "workers": len(chunks),
+        "workers": actual_workers,
+        "execution": {"requested": device, "devices": devices,
+                      "seed_batch_size": max(map(len, chunks)), "batches": len(chunks)},
         "wall_seconds": wall,
         "J_star": problem.J_star,
         "K_star": problem.K_star.reshape(-1).tolist(),

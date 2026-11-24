@@ -37,6 +37,11 @@ ALGO_SLOT = {"monte_carlo": 0, "ppo": 1, "ppo_linear": 2}
 ALGO_SLOT.update(tdmpc2_lq=3, ppo_linear_legacy=2)
 LABELS = {"monte_carlo": "Monte Carlo control", "ppo": "PPO (neural policy)", "ppo_linear": "PPO (linear policy)"}
 LABELS.update(tdmpc2_lq='TD-MPC2-LQ (bounded scalar)', ppo_linear_legacy='Published bounded linear PPO')
+from algos.families import canonical_name
+ALGO_SLOT.update({'ppo-nn': 1, 'ppo-lg': 2, 'td-mpc2-lg': 3, 'td-mpc2-nn': 4})
+LABELS.update({'ppo-nn': 'PPO-NN', 'ppo-lg': 'PPO-LG',
+               'td-mpc2-lg': 'TD-MPC2-LG (scalar adaptation)', 'td-mpc2-nn': 'TD-MPC2-NN',
+               'ppo_linear_legacy': 'PPO-LG (published implementation)'})
 
 INK = "#0b0b0b"
 INK_2 = "#52514e"
@@ -83,12 +88,14 @@ def apply_style() -> None:
 
 
 def color(name: str) -> str:
+    name = canonical_name(name)
     if name not in ALGO_SLOT:
         ALGO_SLOT[name] = len(ALGO_SLOT)
     return SLOTS[ALGO_SLOT[name] % len(SLOTS)]
 
 
 def label(name: str) -> str:
+    name = canonical_name(name)
     return LABELS.get(name, name)
 
 
@@ -506,3 +513,6 @@ def _summary_markdown(summary: dict) -> str:
         lines.extend(f"- {k}: {v}" for k, v in o.items())
         lines.append("")
     return "\n".join(lines)
+
+LABELS['ppo-lg-published'] = 'PPO-LG (published implementation)'
+ALGO_SLOT['ppo-lg-published'] = 2

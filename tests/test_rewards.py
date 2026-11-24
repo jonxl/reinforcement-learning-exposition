@@ -56,7 +56,7 @@ def test_three_algorithm_suite_persists_rewards_and_keeps_old_runs_readable(tmp_
     assert (root/'training_rewards_lqr.png').is_file()
     assert (root/'training_rewards_nlqr_01_01.png').is_file()
     for case in ['lqr', 'nlqr_00']:
-        for algo in ['ppo_linear', 'ppo', 'monte_carlo']:
+        for algo in ['ppo-lg', 'ppo-nn', 'monte_carlo']:
             directory = root/case/algo
             arrays, meta = rollouts.load(directory)
             assert arrays['training_reward_count'][0].sum() == 512

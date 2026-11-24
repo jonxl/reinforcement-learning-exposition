@@ -27,7 +27,7 @@ Build the shareable report with two passes of `pdflatex -interaction=nonstopmode
 ## Integration with the common benchmark pipeline
 
 `algos/ppo.py` remains neural PPO. The published comparison's original linear PPO
-is preserved in `algos/ppo_lq_legacy.py`; its reproduction command still uses
+is preserved in `algos/ppo_lg_published.py`; its reproduction command still uses
 `--method ppo`. This historical label must not be interpreted as neural PPO.
 
 For a new matched experiment using the shared runner, seeds and reports:
@@ -63,7 +63,7 @@ uv run main.py report results/lq_comparison
 
 Converted arrays and reports are written under `results/lq_comparison/unified/`;
 the original results and published report are retained. The algorithm ID
-`ppo_linear_legacy` identifies the published PPO results. Rebuild any new matched
+`ppo-lg-published` identifies the published PPO results. Rebuild any new matched
 experiment with `uv run main.py report results/matched_lq_new`.
 
 TD-MPC2-LQ currently supports only `lqr_bounded`. It is a 16-parameter scalar

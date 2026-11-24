@@ -25,7 +25,7 @@ def test_report_seed_selection_averaging_and_shared_limits(tmp_path):
         assert (tmp_path/(f['stem']+'.pdf')).exists()
     assert 'custom_algorithm' in (tmp_path/'index.html').read_text()
     assert json.loads((tmp_path/'report.json').read_text())['schema_version'] == 1
-    assert 'Primary PPO benchmark' in report['algorithm_roles']['ppo']
+    assert 'PPO neural variant' in report['algorithm_roles']['ppo']
 
 
 def test_primary_defaults_and_optional_linear_baseline():

@@ -60,7 +60,7 @@ def test_suite_runs_both_policies_and_saves_rebuildable_baselines(tmp_path):
     manifest = json.loads((root / 'problems.json').read_text())
     summary = json.loads((root / 'summary.json').read_text())
     assert len(manifest['cases']) == 2 and len(summary) == 4
-    assert {r['algorithm'] for r in summary} == {'ppo', 'ppo_linear'}
+    assert {r['algorithm'] for r in summary} == {'ppo-nn', 'ppo-lg'}
     assert (root / 'learning_curves.png').stat().st_size > 0
     for case in manifest['cases']:
         prob = envs.make_problem(case['problem'], manifest['gamma'], **case['problem_params'])
