@@ -1,0 +1,49 @@
+{
+  "arguments": {
+    "method": "td",
+    "seeds": 4,
+    "steps": 10000,
+    "checkpoints": 2,
+    "structure_only": false,
+    "workers": 1,
+    "out": "results/lq_fast_ablation"
+  },
+  "seeds": [
+    2032329983,
+    2198257139,
+    3243419750,
+    4082210491
+  ],
+  "td_config": {
+    "horizon": 3,
+    "candidates": 64,
+    "elites": 8,
+    "prior_candidates": 8,
+    "iterations": 3,
+    "batch": 64,
+    "update_every": 16,
+    "lr": 0.0003,
+    "tau": 0.01,
+    "rho": 0.5,
+    "gamma": 0.99,
+    "bound": 2.0,
+    "entropy": 0.0001
+  },
+  "action_bound": 2.0,
+  "gamma": 0.99,
+  "eval_seeds": [
+    910000,
+    910001,
+    910002
+  ],
+  "tail_tolerance": 1e-06,
+  "python": "3.12.14",
+  "numpy": "2.3.5",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "source_sha256": {
+    "algos/tdmpc2_lq.py": "5f4738c9618e020dd68a97eb781c242010565596d6cda740c2e40938264f8c71",
+    "algos/lq_planner.py": "37b4b86f00fcada3d49bc1fd2d7910dfdf2b8a059cee5ffa7e010999476321c0",
+    "algos/ppo.py": "f91ec04d7dd061362e376c76d47b6d4a570ae1ca523eefaf901ec64fee8234b4",
+    "experiments/lq_comparison.py": "5579859c5896ce698a2795e9fad0b6ad9b5f62495302ebe437428ceaf10d2fc9"
+  }
+}

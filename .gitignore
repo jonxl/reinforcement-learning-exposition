@@ -16,6 +16,7 @@
 
 # Python / uv
 .venv/
+.venv-lq/
 __pycache__/
 *.pyc
 .pytest_cache/

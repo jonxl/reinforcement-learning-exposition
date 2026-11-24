@@ -1,0 +1,5 @@
+# Preserve recorded experiment bytes, including hashed source snapshots.
+results/lq_comparison/** -text
+results/lq_fast_ablation/** -text
+results/lq_structure_ablation/** -text
+results/lq_throughput/** -text

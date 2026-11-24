@@ -162,7 +162,7 @@ def gae(rewards: np.ndarray, values: np.ndarray, gamma: float, lam: float) -> tu
 # -- training -----------------------------------------------------------------------------------
 
 
-def train(problem: LQRProblem, seeds: np.ndarray, cfg: Config) -> dict:
+def train(problem: LQRProblem, seeds: np.ndarray, cfg: Config, *, action_bound=None, evaluator=None) -> dict:
     """Train one policy per seed; return checkpoints and per-seed metrics (arrays (M, n_ckpt, ...))."""
     M, n, m = len(seeds), problem.n_state, problem.n_control
     T, E, gamma = cfg.horizon, cfg.n_envs, problem.gamma
@@ -191,6 +191,10 @@ def train(problem: LQRProblem, seeds: np.ndarray, cfg: Config) -> dict:
         for j in np.flatnonzero(alive):
             gaps[j] = problem.gap(params["K"][j])
             unstable[j] = not problem.is_stable(params["K"][j])
+        if evaluator is not None:
+            gaps = evaluator(it * N, params, alive)
+        elif action_bound is not None:
+            raise ValueError("Bounded policies need an explicit deployed-policy evaluator")
         out["steps"].append(it * N)
         out["gaps"].append(gaps)
         out["gains"].append(params["K"].reshape(M, -1).copy())
@@ -210,7 +214,10 @@ def train(problem: LQRProblem, seeds: np.ndarray, cfg: Config) -> dict:
         for t in range(T):
             X[t] = x
             U[t] = -np.einsum("men,mjn->mej", x, params["K"]) + sigma * noise[t]
-            obs, r = env.step(U[t].reshape(M * E, m))
+            # Keep the latent action and its Gaussian likelihood for PPO. Only
+            # the actuator clips it; learning uses rewards from applied actions.
+            applied = U[t] if action_bound is None else np.clip(U[t], -action_bound, action_bound)
+            obs, r = env.step(applied.reshape(M * E, m))
             x, Rw[t] = obs.reshape(M, E, n), r.reshape(M, E)
         X[T] = x
         logp_old = (-0.5 * noise**2 - params["log_std"][None, :, None, :] - 0.5 * LOG_2PI).sum(axis=-1)
