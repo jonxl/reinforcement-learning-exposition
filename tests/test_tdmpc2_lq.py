@@ -90,9 +90,9 @@ def test_update_batch_isolation_and_target_schedule():
 
 
 def test_bounded_ppo_keeps_latent_samples_but_applies_clipped_actions(monkeypatch):
-    from algos import ppo
+    from algos import ppo_lq_legacy as ppo
     from utils import envs
-    original_step=envs.LinearQuadraticEnv.step
+    original_step=envs.Env.step
     original_objective=ppo.objective_and_grads
     seen={'physical':0,'latent_outside':False}
     def step(self,u):
@@ -102,7 +102,7 @@ def test_bounded_ppo_keeps_latent_samples_but_applies_clipped_actions(monkeypatc
     def objective(params,batch,cfg):
         seen['latent_outside']|=bool(np.any(np.abs(batch['u'])>.01))
         return original_objective(params,batch,cfg)
-    monkeypatch.setattr(envs.LinearQuadraticEnv,'step',step)
+    monkeypatch.setattr(envs.Env,'step',step)
     monkeypatch.setattr(ppo,'objective_and_grads',objective)
     ppo.train(scalar_lqr(),np.array([42]),ppo.Config(total_steps=2000,n_checkpoints=1),
               action_bound=.01,evaluator=lambda step,p,alive:np.zeros(1))

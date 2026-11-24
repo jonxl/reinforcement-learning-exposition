@@ -7,8 +7,14 @@ Notes, Sections 2-5. The agents never see anything in this module; it is used on
   are scored by a long rollout.
 * ``LQIProblem`` (tracking): LQR on the system enlarged by the integral of the tracking error,
   written in deviation coordinates and delegated to ``LQRProblem``.
+* ``NLQRProblem`` (nonlinear regulation): an LQR problem bent by a state-dependent input gain so that
+  the Riccati matrix of its linearization is still the exact cost-to-go; (P, J*) and the nonlinear
+  optimal policy are known in closed form.
 * Scalar closed forms for a = b = q = r = x0 = 1, so the tests can check the solver against the
   manuscript.
+
+Every problem exposes the same few members an environment needs (``gamma``, ``x0``, ``n_state``,
+``n_control``, ``J_star``, ``dynamics``, ``stage_cost``, ``optimal_policy``); see ``utils.envs``.
 
 LQI scope: only the disturbance-free case d = 0 is supported. Then the integral state rests at
 z = 0 for every gain, so J(K) compares all gains from the same starting deviation and the Riccati
@@ -104,6 +110,17 @@ class LQRProblem:
 
     def _gain(self, K) -> np.ndarray:
         return np.asarray(K, dtype=float).reshape(self.n_control, self.n_state)
+
+    # -- the system as an environment simulates it: batched, x (E, n), u (E, m) ------------------
+
+    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        return x @ self.A.T + u @ self.B.T
+
+    def stage_cost(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        return np.einsum("ei,ij,ej->e", x, self.Q, x) + np.einsum("ei,ij,ej->e", u, self.R, u)
+
+    def optimal_policy(self, x: np.ndarray) -> np.ndarray:
+        return -x @ self.K_star.T
 
 
 def scalar_lqr(gamma: float = 0.99, a: float = 1.0, b: float = 1.0, q: float = 1.0, r: float = 1.0, x0: float = 1.0) -> LQRProblem:
@@ -260,3 +277,140 @@ def scalar_lqi(
 ) -> LQIProblem:
     """Scalar tracking example: a = b = c = 1, so u_ss = 0 and the raw control equals u~."""
     return LQIProblem(A=1.0, B=1.0, C=1.0, Q=q, Q_z=q_z, R=r, gamma=gamma, y_ref=[y_ref], x0=[x0])
+
+
+# =================================================================================================
+# NLQR: a nonlinear system whose exact optimum is the Riccati solution of its linearization
+# (notes, "A nonlinear benchmark with an exact solution")
+#
+# Start from an LQR problem with one control that enters the last state only, B = b e_n, and a
+# Riccati matrix that does not couple that state to the others, P e_n = p e_n (a diagonal P is the
+# simplest case; a scalar problem always qualifies). Let the input gain depend on the first state,
+#     beta(x) = b (2 + cos(k x_1)) / 3  in [b/3, b],      beta(0) = b,
+# and rescale the last row of the drift by
+#     s(x) = sqrt((r + gamma p beta(x)^2) / (r + gamma p b^2)),      s(0) = 1:
+#     x+_i = (A x)_i  for i < n,        x+_n = s(x) (A x)_n + beta(x) u.
+# The cost x'Qx + r u^2 and the discount are unchanged. Then V(x) = x'Px satisfies the Bellman
+# equation of the nonlinear problem for every k, so J* = x0'P x0 is the same number as for the
+# linear problem, and the optimal policy is
+#     u*(x) = -gamma p beta(x) s(x) (A x)_n / (r + gamma p beta(x)^2),
+# which is not linear in x. k = 0 is the linear problem itself. The nonlinearity enters only through
+# k x_1, so k and the size of x0 are the same dial.
+# =================================================================================================
+
+
+@dataclass(frozen=True)
+class NLQRProblem:
+    linear: LQRProblem  # the problem at k = 0, which is also the linearization at the origin
+    k: float = 2.0
+
+    def __post_init__(self) -> None:
+        lin = self.linear
+        if lin.n_control != 1:
+            raise ValueError("the construction needs a single control")
+        if np.any(np.abs(lin.B[:-1]) > 1e-12) or lin.B[-1, 0] == 0.0:
+            raise ValueError("the control must enter the last state only")
+        coupling = np.delete(lin.P[-1], lin.n_state - 1)
+        if np.any(np.abs(coupling) > 1e-8 * np.abs(lin.P).max()):
+            raise ValueError("the Riccati matrix couples the controlled state to the others; V = x'Px is then not exact")
+
+    # -- the baseline: identical to the linear problem's ----------------------------------------
+
+    @property
+    def gamma(self) -> float:
+        return self.linear.gamma
+
+    @property
+    def x0(self) -> np.ndarray:
+        return self.linear.x0
+
+    @property
+    def n_state(self) -> int:
+        return self.linear.n_state
+
+    @property
+    def n_control(self) -> int:
+        return 1
+
+    @property
+    def P(self) -> np.ndarray:
+        """Cost-to-go matrix: V(x) = x'Px, exact for every k."""
+        return self.linear.P
+
+    @property
+    def J_star(self) -> float:
+        return self.linear.J_star
+
+    @property
+    def K_star(self) -> np.ndarray:
+        """The Riccati gain of the linearization. u = -K* x is optimal only at x_1 = 0 (or k = 0)."""
+        return self.linear.K_star
+
+    # -- the nonlinear system, batched: x (E, n), u (E, 1) ----------------------------------------
+
+    @property
+    def _bpr(self) -> tuple[float, float, float]:
+        return float(self.linear.B[-1, 0]), float(self.linear.P[-1, -1]), float(self.linear.R[0, 0])
+
+    def input_gain(self, x: np.ndarray) -> np.ndarray:
+        """beta(x), shape (E,)."""
+        b, _, _ = self._bpr
+        return b * (2.0 + np.cos(self.k * x[:, 0])) / 3.0
+
+    def drift_scale(self, x: np.ndarray) -> np.ndarray:
+        """s(x), shape (E,): the factor on the last row of A that keeps V = x'Px exact."""
+        b, p, r = self._bpr
+        c = self.input_gain(x)
+        return np.sqrt((r + self.gamma * p * c**2) / (r + self.gamma * p * b**2))
+
+    def dynamics(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        nxt = x @ self.linear.A.T
+        nxt[:, -1] = self.drift_scale(x) * nxt[:, -1] + self.input_gain(x) * u[:, 0]
+        return nxt
+
+    def stage_cost(self, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+        return self.linear.stage_cost(x, u)
+
+    def optimal_policy(self, x: np.ndarray) -> np.ndarray:
+        _, p, r = self._bpr
+        c = self.input_gain(x)
+        drift = self.drift_scale(x) * (x @ self.linear.A[-1])
+        return (-self.gamma * p * c * drift / (r + self.gamma * p * c**2))[:, None]
+
+
+def diagonal_riccati_system(p1: float, p2: float, a11: float, b: float = 1.0, gamma: float = 0.99) -> tuple[np.ndarray, np.ndarray]:
+    """A two-state system (A, B = [0, b]') whose discounted Riccati matrix for Q = I, R = 1 is diag(p1, p2).
+
+    With P diagonal and B = b e_2, the Riccati equation reads, row a_i' of A,
+
+        diag(p1 - 1, p2 - 1) = gamma p1 a_1 a_1' + gamma p2 / (1 + gamma p2 b^2) a_2 a_2'.
+
+    Pick a_11 and solve a_11^2 / (p1 - 1) + a_12^2 / (p2 - 1) = 1 / (gamma p1) for a_12 > 0; the left
+    side minus the first term is then a rank-one matrix, and a_2 is read off it. A depends on gamma.
+    """
+    if min(p1, p2) <= 1.0:
+        raise ValueError("p1, p2 must exceed 1: with Q = I the cost-to-go is at least |x|^2")
+    a12_sq = (p2 - 1.0) * (1.0 / (gamma * p1) - a11**2 / (p1 - 1.0))
+    if a12_sq <= 0.0:
+        raise ValueError("a11 too large: need a11^2 < (p1 - 1) / (gamma p1)")
+    a1 = np.array([a11, np.sqrt(a12_sq)])
+    rest = np.diag([p1 - 1.0, p2 - 1.0]) - gamma * p1 * np.outer(a1, a1)  # rank one, positive semidefinite
+    h = np.array([np.sqrt(max(rest[0, 0], 0.0)), np.sign(rest[0, 1]) * np.sqrt(max(rest[1, 1], 0.0))])
+    a2 = np.sqrt((1.0 + gamma * p2 * b**2) / (gamma * p2)) * h
+    return np.vstack([a1, a2]), np.array([[0.0], [b]])
+
+
+def nlqr(gamma: float = 0.99, k: float = 2.0, p1: float = 2.0, p2: float = 1.5, a11: float = 0.5, b: float = 1.0,
+         x0: tuple[float, float] = (1.0, -1.0)) -> NLQRProblem:
+    """The two-state benchmark of the notes: Q = I, R = 1, V(x) = p1 x_1^2 + p2 x_2^2, J* = 3.5.
+
+    At gamma = 0.99 the default A is about [[0.5, 0.357], [0.919, -0.644]], spectral radius 0.88:
+    the uncontrolled system is stable, so an untrained agent does not blow up.
+    """
+    A, B = diagonal_riccati_system(p1, p2, a11, b, gamma)
+    return NLQRProblem(LQRProblem(A=A, B=B, Q=np.eye(2), R=1.0, gamma=gamma, x0=x0), k=k)
+
+
+def scalar_nlqr(gamma: float = 0.99, k: float = 2.0, x0: float = 1.0) -> NLQRProblem:
+    """The scalar running example (a = b = q = r = 1) bent by the same construction; J* = p as before."""
+    return NLQRProblem(scalar_lqr(gamma=gamma, x0=x0), k=k)

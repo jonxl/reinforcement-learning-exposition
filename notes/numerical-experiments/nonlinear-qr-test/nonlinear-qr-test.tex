@@ -1,0 +1,1297 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsfonts}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage[colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue]{hyperref}
+\usepackage{bookmark}
+\setcounter{tocdepth}{2}
+
+\graphicspath{{figures/}}
+
+\title{Nonlinear Quadratic Regulation with Explicit Optima:\\Construction and PPO Experiments}
+\author{Jon Legasa}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\pdfbookmark[0]{Contents}{contents}
+\tableofcontents
+\clearpage
+
+\section*{Which problem does each chart show?}
+\addcontentsline{toc}{section}{Which problem does each chart show?}
+
+The main experiment studies \textbf{ten different generated nonlinear systems},
+called NLQR 01--10. Each has two states, one action, its own dynamics and its own
+explicit optimal controller. We train both a linear-policy PPO agent and a neural-policy
+PPO agent on \emph{each} system. ``Linear PPO'' describes the policy
+$u=-Kx$; it does not mean that the environment is LQR.
+
+\begin{center}
+\begin{tabular}{@{}lp{9.3cm}@{}}
+\toprule
+Chart & Environment and purpose \\
+\midrule
+Figure~\ref{fig:lqr-reference} & One scalar LQR problem; a reference check of the learning pipeline. \\
+Figures~\ref{fig:energy-suite}--\ref{fig:energy-suite-second} & Ten generated NLQR problems, one per panel; the main experiment. \\
+Figures~\ref{fig:hard-single}--\ref{fig:hard-second} & Learning curves on ten harder nonlinear systems H01--H10, with an unstable uncontrolled origin. \\
+Figures~\ref{fig:reward-lqr}--\ref{fig:reward-nlqr-second} & Observed training stage rewards, including exploration, for a fresh three-algorithm run. \\
+Appendix figures & The earlier, separate two-state NLQR benchmark, with 40 seeds and a longer budget. \\
+\bottomrule
+\end{tabular}
+\end{center}
+The two curves within a panel compare policies trained on the \emph{same} problem.
+Different panels compare different generated problems. Repeated training seeds do
+not create new problems. Every cost gap uses that panel's own exact optimum $J^*$.
+
+\section{From an exact solution to a family of nonlinear problems}
+\label{sec:generator}
+
+A quadratic value function does not require linear dynamics. We use the converse-optimal
+construction of Ibrahim et al.~\cite{ibrahim2026}, Sections V--VI, to generate nonlinear
+quadratic-regulation problems with explicit optimal values and feedback policies. This gives the
+same reference point that makes LQR useful for reinforcement-learning experiments: a learned
+policy can be scored against a known optimum. The construction proceeds in the opposite
+direction to the usual LQR calculation: choose the value matrix, then construct compatible
+dynamics. It does not solve an arbitrary prescribed nonlinear control problem.
+
+\subsection{The Bellman equation becomes an energy equation}
+
+Let $x\in\mathbb R^n$, $u\in\mathbb R^m$, and consider
+\begin{align}
+ x_{t+1}&=f(x_t)+G(x_t)u_t+w_t, & w_t&\stackrel{\mathrm{iid}}\sim\mathcal N(0,\Sigma),\\
+ J^\pi(x)&=\mathbb E_x^\pi\sum_{t=0}^{\infty}\gamma^t
+       \bigl(x_t^\top Qx_t+u_t^\top Ru_t\bigr), & 0&<\gamma<1.
+\end{align}
+Here $P\succ0$, $R\succ0$, $\Sigma\succeq0$, and $0\preceq Q\preceq P$.
+Choose $V(x)=x^\top Px+b$. For $y=f(x)+G(x)u$, independence and zero-mean noise give
+\[
+ \mathbb E V(y+w)=y^\top Py+\operatorname{tr}(P\Sigma)+b.
+\]
+Gaussianity is sufficient but unnecessary for this quadratic expectation; zero mean and the
+specified finite covariance suffice. Define
+\begin{align}
+ B(x)&=R+\gamma G(x)^\top PG(x)\succ0,\\
+ u^*(x)&=-\gamma B(x)^{-1}G(x)^\top Pf(x),\label{eq:energy-policy}\\
+ H_\gamma(x)&=\gamma\bigl(P-\gamma PG(x)B(x)^{-1}G(x)^\top P\bigr)\nonumber\\
+ &=\gamma\bigl(P^{-1}+\gamma G(x)R^{-1}G(x)^\top\bigr)^{-1}\succ0.
+\end{align}
+Completing the square gives, for every action,
+\begin{align}
+ u^\top Ru+\gamma(f+Gu)^\top P(f+Gu)
+ =f^\top H_\gamma f+(u-u^*)^\top B(u-u^*).
+\end{align}
+Thus $u^*$ is the unique minimizer of the one-step objective. With the normalization
+$f(0)=0$, matching Bellman's equation at the origin fixes the constant offset,
+\[
+ b=\frac{\gamma}{1-\gamma}\operatorname{tr}(P\Sigma).
+\]
+The remaining condition is the scalar \emph{energy equation}
+\begin{equation}
+ \boxed{\quad f(x)^\top H_\gamma(x)f(x)=x^\top(P-Q)x.\quad}
+ \label{eq:energy}
+\end{equation}
+It fixes the length of the drift in a state-dependent metric, leaving its direction free.
+
+\subsection{Constructing the drift and verifying optimality}
+
+For an orthogonal field $S(x)^\top S(x)=I$, choose
+\begin{equation}
+ f(x)=H_\gamma(x)^{-1/2}S(x)(P-Q)^{1/2}x.
+ \label{eq:energy-generator}
+\end{equation}
+The square roots here are symmetric positive (semi)definite roots. Substitution into
+\eqref{eq:energy} cancels the metric factors and then $S^\top S$, proving the identity.
+At a state with $x^\top(P-Q)x>0$, the admissible drifts form an ellipsoid of dimension
+$n-1$. At zero required energy the only drift is zero. Orthogonal matrices include
+reflections; the implementation below uses proper planar rotations. Different rotation fields
+can produce the same drift, and a constant field need not produce nonlinear dynamics.
+Varying $S$ while holding $P,Q,R,G,\Sigma,\gamma$ fixed preserves $V$, but generally
+\emph{changes} $u^*$ through $f$. Each problem has an explicit policy, not a shared policy.
+
+For an infinite-horizon guarantee, our generated family uses $Q=\beta P$ with
+$0<\beta<1$, a smooth bounded input field, and a smooth orthogonal field.
+The resulting drift has at most linear growth. Define the one-step objective
+$\mathcal Q_V(x,u)=x^\top Qx+u^\top Ru+\gamma\mathbb E[V(x^+)]$.
+The construction gives the stronger identity
+\begin{equation}
+ \mathcal Q_V(x,u)-V(x)=(u-u^*(x))^\top B(x)(u-u^*(x))\geq0.
+ \label{eq:action-gap}
+\end{equation}
+For any finite-cost policy, nonnegativity and $Q=\beta P$ imply
+$\gamma^T\mathbb E[x_T^\top Px_T]\to0$; also $\gamma^T b\to0$.
+Summing \eqref{eq:action-gap} for $T$ steps and passing to the limit therefore yields
+\begin{equation}
+ J^\pi(x)-V(x)=\mathbb E_x^\pi\sum_{t=0}^{\infty}\gamma^t
+ (u_t-u^*(x_t))^\top B(x_t)(u_t-u^*(x_t))\geq0.
+\end{equation}
+Under $u^*$ the finite-horizon identity bounds every partial cost by $V(x)$, so its
+infinite cost is finite and the same terminal argument proves $J^{u^*}(x)=V(x)$.
+Infinite-cost policies cannot improve on it. This supplies the verification step rather
+than assuming that a Bellman fixed point alone establishes infinite-horizon optimality.
+The endpoint $\beta=0$ is excluded from this proof and from the generator.
+
+\subsection{The implemented two-state family}
+\label{sec:implemented-generator}
+
+The new registry entry \texttt{nlqr\_energy} extends the existing problem interface.
+For $P=\operatorname{diag}(p_1,p_2)$, $Q=\beta P$, scalar $R=r>0$, and
+control strength $h$, set
+\begin{align}
+ G(x)&=\begin{pmatrix}0\\ h\cos(kx_1)\end{pmatrix}, &
+ \theta(x)&=\theta_0+\alpha\tanh(\kappa x_1x_2),\\
+ S(x)&=\begin{pmatrix}\cos\theta(x)&-\sin\theta(x)\\
+                         \sin\theta(x)&\cos\theta(x)\end{pmatrix}.
+\end{align}
+Both the rotation and the input gain can introduce nonlinearity. In this family
+\[
+ H_\gamma(x)=\operatorname{diag}\left(\gamma p_1,
+ \frac{\gamma p_2 r}{r+\gamma p_2 h^2\cos^2(kx_1)}\right),
+\]
+so the implementation uses real scalar square roots of positive diagonal entries.
+No dense matrix inverse or complex-valued matrix square root is needed.
+With $L=(P-Q)^{1/2}$, the origin linearization is
+\[
+ A_0=H_\gamma(0)^{-1/2}S(0)L,\qquad G_0=G(0),\qquad
+ K_0=\gamma B(0)^{-1}G_0^\top PA_0.
+\]
+The gain $K_0$ solves the linearized LQR problem; the nonlinear optimum is
+\eqref{eq:energy-policy}. If only $\beta$ varies, $A_0$ scales as
+$\sqrt{1-\beta}$, hence so does its spectral radius. This is a local statement,
+not by itself a global nonlinear stability test.
+
+For the initial learning experiment we use $\Sigma=0$, hence $b=0$ and
+$J^*=x_0^\top Px_0$. The stochastic formula above is derived here but process-noise
+sampling and stochastic policy evaluation are not part of this implementation.
+The parameter generator chooses a conservative region satisfying
+\[
+ \|f(x)\|_P^2\leq
+ \frac{1-\beta}{\gamma}\left(1+\frac{\gamma p_2h^2}{r}\right)\|x\|_P^2
+ <\|x\|_P^2\quad (x\ne0),
+\]
+so the uncontrolled drift contracts globally in the $P$ norm. This is an intentional
+restriction for the first PPO pilot, not a requirement of converse optimality.
+
+\paragraph{Connection with continuous time.}
+For a prescribed quadratic value, the continuous-time HJB equation constrains the
+projection $\nabla V^\top f$, leaving an affine hyperplane of tangential drift freedom
+where $\nabla V\ne0$. Here Bellman's equation constrains a metric length, leaving an
+ellipsoid of directions where the required energy is positive. Both give one scalar
+constraint per state, but the continuous-time skew-symmetric parameterization and the
+discrete-time orthogonal parameterization play different algebraic roles.
+
+\subsection{Pipeline and experiment protocol}
+
+\paragraph{TD-MPC2-LQ integration and comparison scope.}
+The colleague's scalar TD-MPC2-LQ learner and planner are available through the
+same run storage and report interface as PPO and Monte Carlo. Its matched task is
+registered separately as \texttt{lqr\_bounded}: $x_{t+1}=x_t+u_t$,
+$c=x_t^2+u_t^2$, $x_0=1$, $\gamma=0.99$, and applied actions in $[-2,2]$.
+The unconstrained Riccati controller remains optimal from this start because its
+trajectory is feasible. All methods are evaluated using actual applied actions
+and an upper infinite-horizon cost bound with omitted-cost allowance at most
+$10^{-6}$. TD evaluation averages costs over three fixed planner streams before
+computing the gap; PPO evaluates its deterministic clipped mean. Inference for
+the planner is conditional on those streams.
+
+\begin{verbatim}
+uv run --extra lq main.py matched-lq --seeds 8 --steps 100000 \
+  --checkpoints 10 --workers 4 \
+  --algos ppo monte_carlo tdmpc2_lq ppo_linear \
+  --out results/matched_lq_new
+\end{verbatim}
+The published bounded linear-PPO comparison is retained under the separate
+\texttt{ppo\_linear\_legacy} report identity; it must not be interpreted as a
+neural-PPO result. Its original raw results can be reported with
+\texttt{uv run main.py report results/lq\_comparison}.
+TD-MPC2-LQ is a scalar structural adaptation, not standard neural TD-MPC2, and
+does not yet support the generated two-state NLQR problems. The NLQR suite rejects
+that combination explicitly rather than modifying its problems or references.
+Equal interaction budgets do not imply equal optimizer work or reset schedules.
+
+\paragraph{Primary method and optional baseline.}
+The primary PPO benchmark uses a Gaussian policy with a neural mean and a neural
+critic on both LQR and generated NLQR problems. PPO specifies the policy update;
+it does not require a particular actor or critic architecture. Linear PPO is an
+optional restricted-policy baseline with a linear Gaussian mean and a
+quadratic-feature critic. These implementations differ in critic architecture,
+gradient implementation, clipping and default settings, so their comparison does
+not isolate the effect of actor architecture. A neural actor does not guarantee
+zero approximation error, and a nonlinear environment does not by itself establish
+a strictly positive best-linear-policy gap. Although the generator's optimal
+value is quadratic, the value of an intermediate training policy need not be.
+Gaussian noise is used during PPO training; reported optimality gaps evaluate
+the deterministic mean controllers.
+
+New \texttt{suite} and \texttt{crude} runs default to neural PPO and Monte Carlo.
+To include all three methods explicitly, use
+\texttt{--algos ppo monte\_carlo ppo\_linear}. Rebuilding a report follows the
+saved experiment's algorithm list and does not alter historical results.
+
+\paragraph{A reusable fixed-problem report.}
+The reporting hierarchy is problem, algorithm, then independent training seed.
+Generated problem parameters and their exact references are frozen in the suite's
+\texttt{problems.json}; generator seeds are distinct from training seeds.
+The common implementation in \texttt{utils/benchmark\_report.py} accepts the
+existing saved-run format, and reads algorithm membership from the experiment
+configuration. Each fixed problem receives the same four views: a predetermined
+single seed (the smallest saved seed identifier), all seed trajectories with their
+mean, an overlay of mean learning curves, and running averages across seeds at a
+fixed training checkpoint. Training plots share fitted linear percentage limits
+within each problem. Seed-averaging plots use the last available checkpoint at or
+before the shortest training budget; the actual checkpoint is labeled for each
+algorithm. Permuting the finite sample illustrates ordering sensitivity, not extra
+independent observations or a proof of the law of large numbers.
+
+New suites generate this report automatically. To rebuild from saved data without
+training or generating new problems:
+\begin{verbatim}
+uv run main.py report results/nlqr_aggressive_learning_curves
+\end{verbatim}
+The suite's \texttt{benchmark\_report/} directory contains a linked HTML index,
+per-problem PNG/PDF figures and JSON summaries, and a generated
+\texttt{benchmark.tex}. The latter compiles using
+\texttt{bash scripts/build-latex.sh} followed by its path. Reports for saved runs
+on one problem are also produced by the existing \texttt{report} and
+\texttt{crude} commands, under \texttt{report/benchmark/}. No averages pool
+different problems. The hand-written figures below retain the earlier experimental
+narrative; the generated report provides the consistent per-problem presentation.
+\label{sec:energy-protocol}
+
+The suite generates ten distinct parameter sets with a separate generator seed, saves
+their matrices and explicit optimal references, and checks the energy, Bellman, and
+action-gap identities numerically. Analytic positivity follows from the parameter
+constraints; sampled residual checks test the implementation, not the global theorem.
+Each generated problem is passed through the existing environment, rollout, seed,
+and PPO utilities. In the original pilot, linear PPO and neural PPO were trained
+separately on each problem; the scalar LQR reference was run first with both
+algorithms. The exact controller is
+used for validation and scoring references, never as training labels.
+
+Ten generated problems are distinct from ten training seeds: the former sample
+environment parameters, while repeated seeds within each problem measure algorithmic
+variation. Results and actual checkpoint steps are retained separately for each
+problem. A small pilot is not evidence that PPO has converged, nor that the sampled
+family represents all nonlinear regulation problems.
+
+For the reported pilot, $\gamma=0.99$ and $x_0=(1,-1)$. Independently sampled
+parameter ranges are
+\[
+\begin{gathered}
+ p_1\in[1.5,3],\quad p_2\in[1,2],\quad r\in[0.8,1.4],\quad
+ \beta\in[0.65,0.8],\quad h\in[0.35,0.65],\\
+ k\in[0.7,1.5],\quad \theta_0\in[0.2,0.8],\quad
+ \alpha\in[0.7,1.5],\quad \kappa\in[1,2.5].
+\end{gathered}
+\]
+Each interval uses a uniform draw. For other discounts the generator increases
+$\beta$ when needed to retain the contraction margin; these intervals describe the
+reported $\gamma=0.99$ run. The code parameter \texttt{p} is the control strength $h$.
+Both generator seed and training master seed are zero.
+
+Each algorithm uses three training seeds per problem and $32\,768$ environment
+steps per seed. Both collect four rollouts of length 128 per update, use four epochs
+and four minibatches of 128 samples, and evaluate at steps
+$0,8192,16384,24576,32768$. Neural PPO uses separate actor and critic networks with
+two tanh hidden layers of width 32. The two implementations retain their existing
+optimizer and initialization settings, so this is not an experiment isolating only
+policy expressiveness. Scoring uses the deterministic mean policy, a 5000-step
+rollout for nonlinear policies/problems, and the existing exact gain-cost evaluator
+for linear PPO on LQR. The reported relative gap is $1-J^*/J$.
+
+The one-command reproduction is
+\begin{verbatim}
+uv run main.py suite --count 10 --seeds 3 --steps 32768 \
+    --workers 1 --generator-seed 0 --master-seed 0 \
+    --out results/nlqr_energy_pilot
+\end{verbatim}
+The output directory must be new; omit \texttt{--out} to use a timestamped directory.
+\texttt{problems.json} stores the generated parameters and exact references;
+each problem/algorithm directory retains the existing \texttt{arrays.npz} and
+\texttt{meta.json} format. Summary tables and a learning-curve figure are written
+at the suite root. The default command without overrides is a shorter
+4096-step, two-seed smoke experiment.
+
+\paragraph{The ten specific systems.}
+Table~\ref{tab:generated-parameters} identifies the parameters in
+Section~\ref{sec:implemented-generator} for every plotted NLQR case. These are ten
+samples from one construction family, not ten training seeds or ten unrelated model
+classes. Across cases we vary both the cost matrices and the nonlinear dynamics;
+within each case both PPO agents receive the identical environment.
+The shared settings are $Q=\beta P$, $P=\operatorname{diag}(p_1,p_2)$, $R=r$,
+$\gamma=0.99$, $x_0=(1,-1)$, and $\Sigma=0$.
+\begin{table}[H]
+\centering\small
+\begin{tabular}{@{}lrrrrrrrrr@{}}
+\toprule
+NLQR & $p_1$ & $p_2$ & $\beta$ & $r$ & $h$ & $k$ & $\theta_0$ & $\alpha$ & $\kappa$ \\
+\midrule
+01 & 2.455 & 1.270 & 0.656 & 0.810 & 0.594 & 1.430 & 0.564 & 1.284 & 1.815 \\
+02 & 2.903 & 1.816 & 0.650 & 1.314 & 0.360 & 1.284 & 0.305 & 1.391 & 1.812 \\
+03 & 1.950 & 1.423 & 0.654 & 0.875 & 0.551 & 1.218 & 0.569 & 1.007 & 2.496 \\
+04 & 2.971 & 1.686 & 0.748 & 1.213 & 0.467 & 0.808 & 0.633 & 1.120 & 1.465 \\
+05 & 2.229 & 1.889 & 0.790 & 1.015 & 0.521 & 0.957 & 0.557 & 0.970 & 1.587 \\
+06 & 2.835 & 1.227 & 0.743 & 0.850 & 0.600 & 1.330 & 0.344 & 1.401 & 1.088 \\
+07 & 2.004 & 1.150 & 0.718 & 1.278 & 0.419 & 0.742 & 0.443 & 0.859 & 1.136 \\
+08 & 2.370 & 1.299 & 0.751 & 0.920 & 0.633 & 0.992 & 0.263 & 1.203 & 2.391 \\
+09 & 2.161 & 1.955 & 0.725 & 1.055 & 0.536 & 1.496 & 0.769 & 1.068 & 2.137 \\
+10 & 2.246 & 1.529 & 0.768 & 1.049 & 0.570 & 1.269 & 0.759 & 0.792 & 2.094 \\
+\bottomrule
+\end{tabular}
+\caption{Which nonlinear problem is being learned? Each row specifies one instance
+of the energy-equation construction. Displayed parameters are rounded; full precision
+is retained in \texttt{energy-suite-results.json}. NLQR 01 maps to saved ID
+\texttt{nlqr\_00}, through NLQR 10 mapping to \texttt{nlqr\_09}.}
+\label{tab:generated-parameters}
+\end{table}
+
+\subsection{Generated-suite pilot results}
+\label{sec:energy-results}
+
+All ten generated problems passed validation. The maximum absolute residuals were
+$7.11\times10^{-15}$ for both the energy and Bellman identities, and
+$8.22\times10^{-15}$ for the action-gap identity. Optimal-controller rollouts agreed
+with the analytic cost to within $3.56\times10^{-15}$ across the eleven cases,
+including LQR. The generated open-loop contraction bounds ranged from 0.318 to 0.538.
+
+\begin{table}[H]
+  \centering
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    Problem & Exact $J^*$ & Linear PPO gap & Neural PPO gap \\
+    \midrule
+    lqr & 1.615251 & 0.114900 & 0.026688 \\
+    nlqr\_00 & 3.725229 & 0.026305 & 0.014985 \\
+    nlqr\_01 & 4.718462 & 0.017823 & 0.009048 \\
+    nlqr\_02 & 3.372255 & 0.025380 & 0.019031 \\
+    nlqr\_03 & 4.656795 & 0.023164 & 0.020748 \\
+    nlqr\_04 & 4.118241 & 0.017438 & 0.015549 \\
+    nlqr\_05 & 4.062569 & 0.012934 & 0.007776 \\
+    nlqr\_06 & 3.154455 & 0.013037 & 0.014955 \\
+    nlqr\_07 & 3.669195 & 0.025292 & 0.013502 \\
+    nlqr\_08 & 4.115156 & 0.009698 & 0.012361 \\
+    nlqr\_09 & 3.775446 & 0.004071 & 0.011569 \\
+    \midrule
+    NLQR mean & --- & 0.017514 & 0.013953 \\
+    \bottomrule
+  \end{tabular}
+  \caption{Final mean relative cost gaps over three training seeds per problem,
+  at $32\,768$ steps per seed. The last row weights the ten NLQR problems equally
+  and excludes LQR. Values are empirical means, not confidence bounds.}
+  \label{tab:energy-results}
+\end{table}
+
+The initial mean NLQR gaps were 0.04423 for linear PPO and 0.04420 for neural PPO.
+Both algorithms reduced their family-average gap. Neural PPO had a smaller final
+mean on seven of the ten problems, while linear PPO had the smaller mean on three.
+Neural PPO worsened relative to its initial mean on \texttt{nlqr\_09}.
+No run was marked as training-diverged or unstable at the final evaluation.
+The small seed count, short training budget, stable sampled family, and single
+initial state limit any comparison. In particular, these data neither establish
+convergence to the explicit optimum nor a statistically reliable algorithm ordering.
+
+\paragraph{Reference: one scalar LQR problem.}
+Figure~\ref{fig:lqr-reference} uses $x^+=x+u$, stage cost $x^2+u^2$,
+$x_0=1$, and $\gamma=0.99$. This is the only linear environment in the suite.
+It is not the linearization of one of the ten NLQR problems.
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{energy_lqr_reference.png}
+  \caption{\textbf{Scalar LQR reference only.} Linear-policy PPO and neural-policy PPO
+  learn on the same scalar linear system. The exact optimal gap is zero, drawn when
+  visible and explicitly noted when outside the fitted view. Curves average three training seeds.}
+  \label{fig:lqr-reference}
+\end{figure}
+
+\paragraph{Main experiment: ten generated NLQR problems.}
+Figures~\ref{fig:energy-suite} and~\ref{fig:energy-suite-second} show the ten
+nonlinear systems specified in Table~\ref{tab:generated-parameters}, five per figure.
+Each panel fits its vertical limits to all displayed algorithm values, with 8\%
+padding in axis coordinates. Narrow ranges use a linear axis; positive values
+spanning at least two orders of magnitude use a logarithmic axis. The axis label
+states the scale. Limits are independent across panels, so compare numerical ticks,
+not curve heights. No finite observations are clipped.
+The vertical axis is the percentage cost gap $100(1-J^*/J)$, so zero is exact
+optimal performance. When zero lies outside the fitted view, the panel explicitly
+states ``0\% optimum below view'' rather than drawing an optimum line at the axis
+edge. When zero is visible, it is drawn at its actual value.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{energy_nlqr_01_05.png}
+  \caption{\textbf{Generated nonlinear problems NLQR 01--05.} Each panel is a
+  different two-state nonlinear environment, identified by its parameter-table row
+  and saved ID. Both curves in a panel use that environment's own exact optimum.
+  ``Linear policy'' describes the agent, not the dynamics. Means of three seeds;
+  no confidence bands.}
+  \label{fig:energy-suite}
+\end{figure}
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{energy_nlqr_06_10.png}
+  \caption{\textbf{Generated nonlinear problems NLQR 06--10.} The remaining five
+  nonlinear environments, under the same training and evaluation protocol as
+  Figure~\ref{fig:energy-suite}. Each has a distinct explicit optimal controller.}
+  \label{fig:energy-suite-second}
+\end{figure}
+
+The local run is \texttt{results/nlqr\_energy\_pilot/}. A compact snapshot of its
+parameters, validation residuals, and summary is retained beside this document in
+\texttt{energy-suite-results.json}; raw checkpoint arrays remain in the run directory.
+
+
+\subsection{What the pilot leaves out, and a harder instance}
+\label{sec:harder-problems}
+
+The stable two-state sampling region is a restriction of this implementation, not
+of the energy-equation construction. Ibrahim et al.~\cite{ibrahim2026},
+Sections VI.B--D, describe serial linked-arm families with $2n$ states and $n$
+controls, products of Givens rotations, and dynamically extended vehicle families
+with tunable local open-loop instability. Their evaluation also distinguishes fixed
+and scheduled initial states. Our current implementation uses one scalar action,
+one planar rotation, zero process noise, and a single initial state. Extending the
+state dimension and initial-state coverage would test capabilities that this pilot
+cannot measure. Stronger nonlinear coefficients alone do not certify a larger
+performance gap between optimal linear and nonlinear policies.
+
+Even the existing two-state constructor permits unstable instances outside the
+conservative sampling region. For example, retaining the constructor defaults but
+choosing $\beta=0.15$, $h=1$, and $r=0.5$ gives
+\[
+ \rho(A_0)=1.307945>1,\qquad J^*(1,-1)=3.5.
+\]
+Its energy and Bellman residuals are below $1.5\times10^{-14}$.
+The optimal rollout agrees with $J^*=3.5$ to within $5\times10^{-16}$. Moreover,
+$V(f(x)+G(x)u^*(x))\leq (1-\beta)V(x)/\gamma$, with
+$(1-\beta)/\gamma=0.85/0.99<1$, so the deterministic optimal closed loop contracts
+in value even though the origin is unstable without control. This candidate has
+been validated, but no PPO training results on it are reported here. Its parameters
+and validation are saved in \texttt{harder-energy-example.json}. It can be inspected with
+\begin{verbatim}
+uv run main.py baseline --problem nlqr_energy \
+    --problem-set beta=0.15 p=1 r=0.5
+\end{verbatim}
+A useful next comparison would combine these unstable instances with several initial
+states and a carefully optimized linear-policy reference. This would separate poor
+PPO optimization from limitations of the linear policy class.
+
+\subsection{Learning curves on ten harder nonlinear problems}
+\label{sec:hard-learning}
+
+Figures~\ref{fig:hard-single}--\ref{fig:hard-second} answer the harder-problem
+question directly: they plot the evaluated optimality gap against training steps,
+with linear PPO, neural PPO, and Monte Carlo control on the same nonlinear
+system in each panel. These are completed learning experiments, not only numerical
+checks of the energy identity. The problem labels H01--H10 distinguish this set
+from the easy NLQR 01--10 pilot.
+
+\paragraph{What makes this set more aggressive?}
+We retain two states, one action, $\gamma=0.99$, $x_0=(1,-1)$, and $\Sigma=0$.
+We sample $h\in[0.9,1.3]$, $r\in[0.4,0.8]$, $\alpha\in[1.8,3]$,
+$\kappa\in[2.5,5]$, and $\theta_0\in[0.35,0.8]$, with the same ranges for
+$p_1,p_2,k$ as before. For each draw we choose a target
+$\rho_{\mathrm{target}}\in[1.05,1.25]$ and set
+\[
+ \beta=1-\left(\frac{\rho_{\mathrm{target}}}{\rho_{\mathrm{base}}}\right)^2,
+ \qquad
+ \rho_{\mathrm{base}}=\frac{\rho(A_0\vert_{\beta=1/2})}{\sqrt{1/2}}.
+\]
+We accept only $1-\gamma<\beta<1$. This enforces local instability of the
+uncontrolled origin while retaining global value contraction of the optimal
+closed loop, since $(1-\beta)/\gamma<1$. The larger rotation amplitude and
+state dependence also increase nonlinear coupling. Parameter selection uses
+these analytic conditions only; it does not select problems according to how
+well or badly an algorithm learns. This is still a two-state construction,
+not an implementation of the paper's full linked-arm or vehicle families.
+
+\begin{table}[H]
+\centering\scriptsize
+\begin{tabular}{@{}lrrrrrrrrrr@{}}
+\toprule
+Problem & $p_1$ & $p_2$ & $\beta$ & $r$ & $h$ & $k$ & $\theta_0$ & $\alpha$ & $\kappa$ & $\rho(A_0)$ \\
+\midrule
+H01 & 2.455 & 1.270 & 0.288 & 0.416 & 0.907 & 1.351 & 0.761 & 2.528 & 4.324 & 1.159 \\
+H02 & 2.903 & 1.816 & 0.528 & 0.401 & 1.243 & 0.727 & 0.678 & 2.011 & 4.658 & 1.158 \\
+H03 & 1.950 & 1.423 & 0.236 & 0.411 & 0.950 & 1.236 & 0.641 & 2.538 & 3.459 & 1.249 \\
+H04 & 2.971 & 1.686 & 0.422 & 0.660 & 1.175 & 1.011 & 0.411 & 2.666 & 3.813 & 1.112 \\
+H05 & 2.229 & 1.889 & 0.339 & 0.774 & 1.043 & 1.157 & 0.495 & 2.513 & 3.345 & 1.128 \\
+H06 & 2.835 & 1.227 & 0.312 & 0.649 & 0.934 & 1.366 & 0.704 & 2.087 & 4.691 & 1.062 \\
+H07 & 2.004 & 1.150 & 0.429 & 0.580 & 1.219 & 0.885 & 0.373 & 2.285 & 2.996 & 1.068 \\
+H08 & 2.370 & 1.299 & 0.104 & 0.669 & 0.980 & 1.454 & 0.514 & 1.927 & 4.073 & 1.235 \\
+H09 & 2.161 & 1.955 & 0.340 & 0.600 & 1.070 & 1.196 & 0.798 & 2.939 & 3.650 & 1.202 \\
+H10 & 2.246 & 1.529 & 0.233 & 0.714 & 1.066 & 1.288 & 0.670 & 2.918 & 2.787 & 1.196 \\
+\bottomrule
+\end{tabular}
+\caption{The ten harder systems. H01 corresponds to saved ID \texttt{nlqr\_00}
+inside the aggressive run directory, through H10 corresponding to \texttt{nlqr\_09}.
+These identifiers do not denote the same parameters as the easy pilot. Values shown
+are rounded; the snapshot stores full precision.}
+\label{tab:hard-parameters}
+\end{table}
+
+
+\paragraph{Training and plotting.}
+Each algorithm uses eight seeds and $131\,072$ environment steps per seed,
+with 16 evaluation intervals (8192 steps each). The PPO architecture and update
+settings match the easy pilot; Monte Carlo uses its existing table and epsilon-greedy
+policy with 128-step rollouts. Both generator and training master seeds are zero.
+Evaluation uses the same 5000-step horizon and the explicit $J^*$ of each problem.
+A divergent evaluation receives gap one and remains in the reported mean.
+
+As in historical Figure~\ref{fig:curves}, lines show mean cost gap over training.
+Here shading shows the empirical middle 50\% of seeds, \emph{not} a confidence
+interval; it differs from the Hoeffding bands in the historical figure.
+The linear percentage axes fit the displayed means and quartiles independently per panel.
+The exact optimum is 0\%; it may lie below the fitted view. These plots measure discounted
+controller performance, not training stage reward. H02 and H07 are shown separately to make
+their observed separation between algorithms readable; the following figures show
+all ten cases, including the failed runs.
+
+\paragraph{Measured results.}
+The final mean gaps are shown below; a smaller value is better. Values near 100\%
+represent very poor cost relative to the analytic optimum or the evaluator's
+explicit divergence classification. They are retained in the means.
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Problem & Linear PPO & Neural PPO & Monte Carlo \\
+\midrule
+H01 & 100.00\% & 100.00\% & 100.00\% \\
+H02 & 99.01\% & 68.96\% & 99.01\% \\
+H03 & 100.00\% & 100.00\% & 100.00\% \\
+H04 & 99.70\% & 96.51\% & 99.63\% \\
+H05 & 99.51\% & 45.48\% & 98.50\% \\
+H06 & 70.75\% & 35.79\% & 93.30\% \\
+H07 & 27.26\% & 12.41\% & 96.34\% \\
+H08 & 100.00\% & 100.00\% & 100.00\% \\
+H09 & 100.00\% & 100.00\% & 100.00\% \\
+H10 & 100.00\% & 100.00\% & 100.00\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+On H07, neural PPO reduced its mean gap from about 95.7\% to 12.4\%; linear
+PPO reduced its gap from 95.6\% to 27.3\%, with most of its improvement occurring
+later in training. Monte Carlo remained near 96\%. On H02, neural PPO reached
+69.0\%, while both other methods remained near 99\%. Neural PPO also outperformed
+the other two methods at the final checkpoint on H04--H06.
+
+The stress test also exposes failures: H01, H03, H08, H09, and H10 have 100\%
+final gap for every algorithm and seed under the evaluation convention. Those
+cases are shown explicitly rather than removed from the report. Averaging the
+final mean gap equally across all ten problems gives 89.6\% for linear PPO,
+75.9\% for neural PPO, and 98.7\% for Monte Carlo. These are descriptive results
+from eight seeds, not a statistically established ranking.
+
+All ten analytic references passed validation: the largest energy, Bellman, or
+action-gap residual was below $1.8\times10^{-14}$, and optimal rollouts matched
+$J^*$ to within $3\times10^{-15}$. Thus poor learned-controller performance does
+not reflect a failure of the explicit optimal solution in these checks.
+
+These runs do not establish the best achievable linear-policy cost, nor convergence
+of either PPO variant. Instability of the uncontrolled origin does not by itself
+prove an irreducible advantage for nonlinear policies. Training failures and limited
+optimization remain part of the comparison.
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H02_learning_curve.png}
+\caption{\textbf{Learning on hard nonlinear problem H02.} A direct three-algorithm
+comparison in the style of historical Figure~\ref{fig:curves}, now on a generated
+system whose uncontrolled origin is unstable. Lower evaluated cost gap is better;
+shading is the middle 50\% of eight seeds, not a confidence interval.}
+\label{fig:hard-single}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H07_learning_curve.png}
+\caption{\textbf{Learning on hard nonlinear problem H07.} A second detailed example,
+showing how the evaluated gaps change over training. Same eight-seed mean and
+empirical interquartile shading as Figure~\ref{fig:hard-single}.}
+\label{fig:hard-seventh}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H01_H05_learning_curves.png}
+\caption{\textbf{Hard nonlinear problems H01--H05.} Every panel compares the same
+three algorithms against that panel's own exact optimal controller. H02 repeats
+Figure~\ref{fig:hard-single} for completeness.}
+\label{fig:hard-first}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H06_H10_learning_curves.png}
+\caption{\textbf{Hard nonlinear problems H06--H10.} Same protocol as
+Figure~\ref{fig:hard-first}; fitted linear-axis limits differ between panels. These
+are distinct instances from the easy pilot and the historical appendix.}
+\label{fig:hard-second}
+\end{figure}
+
+\subsubsection{Optimality-gap trajectories on readable percentage axes}
+These plots use the same gap definition as historical Figure~\ref{fig:curves}:
+$g=1-J^*/J$, against training environment steps, now displayed as percentages.
+Lower is better. Each chart identifies one hard nonlinear problem and its own
+exact $J^*$. Lines and checkpoint markers show means over eight seeds; the legend
+reports each algorithm's final mean gap. Linear vertical limits are fitted to
+these means separately for each problem so their changes remain visible.
+The broad Hoeffding shading is omitted from these trajectory views; they do not
+establish a statistically confident ranking. The preceding plots show seed quartiles.
+The exact optimum is 0\%, explicitly marked as below view when excluded by the
+fitted limits. No artificial positive floor stands in for zero, and no
+best-linear-policy reference is claimed for these systems.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H01_historical_gap.png}
+\caption{\textbf{Hard NLQR H01: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H01. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-01}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H02_historical_gap.png}
+\caption{\textbf{Hard NLQR H02: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H02. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-02}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H03_historical_gap.png}
+\caption{\textbf{Hard NLQR H03: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H03. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-03}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H04_historical_gap.png}
+\caption{\textbf{Hard NLQR H04: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H04. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-04}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H05_historical_gap.png}
+\caption{\textbf{Hard NLQR H05: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H05. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-05}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H06_historical_gap.png}
+\caption{\textbf{Hard NLQR H06: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H06. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-06}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H07_historical_gap.png}
+\caption{\textbf{Hard NLQR H07: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H07. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-07}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H08_historical_gap.png}
+\caption{\textbf{Hard NLQR H08: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H08. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-08}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H09_historical_gap.png}
+\caption{\textbf{Hard NLQR H09: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H09. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-09}
+\end{figure}
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{hard_H10_historical_gap.png}
+\caption{\textbf{Hard NLQR H10: optimality gap.} The same gap metric as historical Figure~\ref{fig:curves}, with a fitted linear percentage axis for H10. Eight seeds per algorithm; 131,072 environment steps per seed. Gap one includes failed evaluations under the stated scoring convention.}
+\label{fig:hard-gap-10}
+\end{figure}
+
+Reproduce the experiment with:
+\begin{verbatim}
+uv run main.py suite --profile aggressive --count 10 \
+    --seeds 8 --steps 131072 --checkpoints 16 --workers 4 \
+    --algos ppo_linear ppo monte_carlo \
+    --out results/nlqr_aggressive_learning_curves
+\end{verbatim}
+Use a new output directory for a rerun. All sampled parameters, analytic validation,
+per-seed learning curves and configurations are stored under that directory.
+A compact snapshot is retained in \texttt{aggressive-learning-results.json} beside
+this document. The harder set has a larger budget than the easy pilot, so this
+comparison does not isolate problem difficulty alone.
+
+\subsection{Observed stage reward during training}
+\label{sec:training-rewards}
+
+Cost gap and training reward answer different questions. For checkpoint steps
+$N_{j-1}<N_j$, we now record, separately for each training seed,
+\[
+ \bar r_j=\frac{1}{N_j-N_{j-1}}
+ \sum_{\ell=N_{j-1}+1}^{N_j}r_\ell,
+ \qquad r_\ell=-x_\ell^\top Qx_\ell-u_\ell^\top Ru_\ell.
+\]
+The index $\ell$ enumerates collected environment transitions, including parallel
+rollouts and resets. The plots average these window means across seeds and place each
+point at the window's ending training step. Higher (less negative) reward is better;
+this is an undiscounted stage-reward average, not a discounted return or percentage gap.
+There is no training-reward point at step zero because no transitions have occurred.
+Nonfinite or failed windows are recorded as $-\infty$, rather than silently dropping
+failed seeds; plots identify nonfinite windows when present.
+
+Training reward includes Gaussian exploration for PPO and epsilon-greedy exploration
+for Monte Carlo. A better training reward can reflect reduced exploration or more
+samples near the origin without improving the policy evaluated from $x_0$. The
+reset horizon also changes this average. Consequently no ``optimal stage reward''
+line is asserted: the known controller optimizes discounted total cost, not this
+training-window statistic. The gap figures remain the measure of proximity to the
+explicit optimal solution.
+
+The earlier runs did not record stage rewards and these cannot be recovered from
+cost gaps. We reran the same ten generated problems and scalar LQR reference, with
+three seeds and $32\,768$ steps per seed, now including Monte Carlo control.
+All algorithms use 128-step training rollouts; PPO collects four such rollouts per
+update, while Monte Carlo updates its table after each rollout. Monte Carlo otherwise
+uses its existing defaults. The PPO configurations and seeds match the main pilot.
+This fresh reward experiment is separate from the 40-seed historical appendix.
+\begin{verbatim}
+uv run main.py suite --count 10 --seeds 3 --steps 32768 \
+    --algos ppo_linear ppo monte_carlo \
+    --out results/nlqr_energy_rewards_pilot
+\end{verbatim}
+The saved arrays include \texttt{training\_stage\_reward} and
+\texttt{training\_reward\_count}; the latter records the number of transitions in each
+averaging window. Existing \texttt{crude} and \texttt{report} commands also draw this
+metric for new runs that contain it. Older saved runs remain readable.
+
+\paragraph{What the added reward plots show.}
+Reward instrumentation left all 22 PPO checkpoint gap arrays exactly unchanged from
+the main pilot. Monte Carlo's final evaluated mean gap across the ten NLQR problems
+was 19.33\%, compared with 1.75\% for linear PPO and 1.40\% for neural PPO.
+Nevertheless, Monte Carlo had the highest final training-window stage reward on
+each NLQR problem. This is not a contradiction: these training policies use different
+exploration distributions, and the window mean measures a different objective from
+deterministic discounted evaluation. For example, on NLQR 01 the final training
+rewards were approximately $-0.177$ (Monte Carlo), $-0.211$ (linear PPO), and $-0.213$
+(neural PPO), while their evaluated gaps were 9.09\%, 2.63\%, and 1.50\%, respectively.
+The reward curves are useful diagnostics, but do not replace the optimality-gap curves.
+Per-seed window rewards are retained in \texttt{training-reward-results.json} beside
+this document, with full run data in \texttt{results/nlqr\_energy\_rewards\_pilot/}.
+
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{training_rewards_lqr.png}
+\caption{\textbf{Training stage reward on the scalar LQR reference.}
+Three algorithms on one linear environment; higher is better. The reward axis uses
+  a symmetric logarithmic scale, with its linear threshold set to the smallest
+  nonzero observed mean magnitude, to show both large initial costs and later rewards.
+  Limits are fitted to the observed values with padding. Points are means
+since the preceding checkpoint, including exploration. These are new recorded
+training rewards, not the deterministic evaluation gaps in Figure~\ref{fig:lqr-reference}.}
+\label{fig:reward-lqr}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{training_rewards_nlqr_01_05.png}
+\caption{\textbf{Training stage reward on generated NLQR 01--05.}
+Each panel uses the corresponding problem in Table~\ref{tab:generated-parameters}.
+The two PPO policies and Monte Carlo table are trained on identical problem parameters
+and compared over the same number of environment transitions.}
+\label{fig:reward-nlqr-first}
+\end{figure}
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{training_rewards_nlqr_06_10.png}
+\caption{\textbf{Training stage reward on generated NLQR 06--10.}
+Same averaging convention as Figure~\ref{fig:reward-nlqr-first}. Rewards are in each
+problem's own cost units; compare algorithms within a panel rather than ranking
+problem difficulty from raw reward magnitudes. Each panel uses independent,
+  data-fitted vertical limits; the axis label identifies its scale.}
+\label{fig:reward-nlqr-second}
+\end{figure}
+
+\clearpage
+\appendix
+\renewcommand{\thefigure}{A.\arabic{figure}}
+\renewcommand{\theHfigure}{appendix.A.\arabic{figure}}
+\setcounter{figure}{0}
+\section{Historical experiment: one different NLQR problem}
+\label{sec:historical}
+
+\textbf{All figures in this appendix concern the same earlier NLQR benchmark.}
+They do not show the scalar LQR reference or any of NLQR 01--10. This older run
+uses registry entry \texttt{nlqr}, $k=2$, $P=\operatorname{diag}(2,1.5)$,
+$Q=I$, $R=1$, $x_0=(1,-1)$, and $J^*=3.5$, with 40 seeds and $10^6$ steps.
+Its construction and training budget differ from the generated-suite pilot.
+
+\subsection*{Earlier experiment: summary}
+
+The remainder records the earlier single-instance \texttt{nlqr} experiment and its
+original figures. Its numerical results do not refer to the new generated suite.
+The ``bound'' or ``floor'' at $0.00436$ below is a best-found linear-policy reference
+from a local numerical search, not a certified global lower bound over linear policies.
+Statements about reaching or beating it should be read with that qualification.
+
+This is the second run of the pipeline. Monte Carlo control, PPO with a linear policy and PPO with
+neural networks are trained on the nonlinear benchmark of the notes, each on the same $M = 40$
+seeds for $10^6$ environment steps, and scored by the gap $g = 1 - J^*/J$ to the exact optimum
+$J^* = 3.5$. The question is the bound of the problem: no linear policy $u = -Kx$ can reach a gap
+below $0.00436$. Like the first run, it is a crude estimate, not a tuned or statistically conclusive
+comparison.
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Linear PPO stops at the bound.} Its final mean gap is $0.0055 \pm 0.0002$ (standard
+    error); the best of the 40 seeds is at $0.00436$, the bound itself, and no seed goes below it at
+    any checkpoint.
+  \item \textbf{Neural PPO beats the bound early, then loses it.} After about $4.9 \times 10^4$
+    steps 19 of the 40 seeds are below the bound, the best at $2.9 \times 10^{-4}$, and the median is
+    $0.0049$. From then on it gets worse with training: no seed is below the bound at any later
+    checkpoint, and the mean gap rises to $0.16$ at $10^6$ steps, thirty times that of linear PPO.
+  \item \textbf{Monte Carlo control does not learn the problem.} It ends at a mean gap of $0.46$,
+    slightly worse than applying no control at all ($0.416$).
+  \item The expected curves are ordered linear PPO $<$ neural PPO $<$ Monte Carlo at the end; with 40
+    seeds no ordering is confident in the Hoeffding sense.
+\end{itemize}
+
+%----------------------------------------------------------------------------------------------------
+\subsection{Setup}
+\label{sec:setup}
+
+This is the experiment of the first run (\emph{First Experiment: PPO and Monte Carlo Control
+Against the Exact LQR Optimum}) repeated on the nonlinear benchmark of the notes \emph{Measuring
+Reinforcement Learning Against the Exact LQR Optimum}, Section ``A nonlinear benchmark with an
+exact solution''. Everything not stated here is as in the first run.
+
+\paragraph{Problem.} Two states, one control, $Q = I$, $R = 1$, $\gamma = 0.99$:
+\begin{gather*}
+  x_1^+ = 0.5\, x_1 + 0.3571\, x_2, \qquad
+  x_2^+ = s(x_1)\, \big(0.9193\, x_1 - 0.6436\, x_2\big) + \beta(x_1)\, u, \\
+  \beta(x_1) = \frac{2 + \cos(k x_1)}{3}, \qquad
+  s(x_1) = \sqrt{\frac{1 + \gamma p_2\, \beta(x_1)^2}{1 + \gamma p_2}}, \qquad p_2 = 1.5, \qquad k = 2, \\
+  c(x, u) = x_1^2 + x_2^2 + u^2, \qquad x_0 = (1, -1) .
+\end{gather*}
+The control acts with a strength $\beta$ between $1/3$ and $1$ that depends on $x_1$. The agents
+see the state and the reward $r_t = -c(x_t, u_t)$, never the equations. There is no early
+termination and the dynamics are never clipped.
+
+\paragraph{Baseline.} The cost-to-go of this nonlinear problem is exactly the Riccati solution of
+its linearization at the origin, $V(x) = x^\top P x$ with $P = \mathrm{diag}(2, 1.5)$, so
+\[
+  J^* = x_0^\top P x_0 = 3.5 ,
+\]
+and the optimal policy is
+\[
+  u^*(x) = -\frac{\gamma p_2\, \beta(x_1)\, s(x_1)}{1 + \gamma p_2\, \beta(x_1)^2}\,
+  \big(0.9193\, x_1 - 0.6436\, x_2\big),
+\]
+which is not linear in $x$. Three reference policies place the algorithms:
+\begin{center}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Policy & Gain $K$ in $u = -Kx$ & Gap \\
+    \midrule
+    no control, $u = 0$ & $(0, 0)$ & $0.416$ \\
+    LQR gain of the linearization & $(0.5493, -0.3846)$ & $0.0308$ \\
+    best linear policy & $(0.3717, -0.3286)$ & $0.00436$ \\
+    optimal policy $u^*$ & not linear & $0$ \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+The best linear gain is found by a numerical search over $K$ (\texttt{envs.best\_linear\_gap}). Its
+gap, $0.00436$, is a floor for every policy of the form $u = -Kx$: no amount of training lets a
+linear policy go below it. A table or a neural network is not bound by it. This floor is the
+question of this experiment.
+
+\paragraph{Score.} At each checkpoint the current deterministic policy of every seed is scored by its
+gap $g = 1 - J^*/J \in [0, 1]$, with $g = 1$ when the cost is infinite. Unlike the first run, every
+algorithm, the linear PPO included, is scored by a deterministic rollout of 5000 steps from $x_0$
+($\gamma^{5000} \approx 10^{-22}$): on a nonlinear system there is no closed form for the cost of a
+gain. Linear PPO is scored by its mean action $u = -Kx$, neural PPO by its mean action
+$u = \mu_\theta(x)$, Monte Carlo control by its greedy table. For the table and the network, the
+\emph{effective gain} is the discounted least-squares fit $u \approx -Kx$ along that rollout.
+
+\paragraph{Instability.} For every algorithm a run is counted as unstable when its evaluation rollout
+diverges or ends farther from zero than it started (over its last 100 steps). The eigenvalue test of
+the first run does not apply to a nonlinear closed loop.
+
+\paragraph{Seeds and checkpoints.} All three algorithms use the same $M = 40$ evaluation seeds as the
+first run (master seed 0), and every random number of a seed comes from its own generator. Monte
+Carlo control and linear PPO are checkpointed every $5 \times 10^4$ steps. Neural PPO collects
+2048 steps per update, so its 21 checkpoints fall on multiples of 2048 steps, about every
+$4.9 \times 10^4$ steps. Orderings involving neural PPO compare each seed's latest checkpoint at or
+before a common step, without interpolation.
+
+\paragraph{Confidence bands and figures.} The bands are 95\% Hoeffding bands, simultaneous over 21
+checkpoints, of half-width $\varepsilon = 0.290$, as in the first run. Every gap axis is logarithmic;
+gaps at or below $10^{-8}$ are drawn on the dashed optimum line, and the best linear policy is drawn
+as a dash-dotted line at $0.00436$.
+
+%----------------------------------------------------------------------------------------------------
+\subsection{Algorithms}
+\label{sec:algorithms}
+
+\subsubsection{Monte Carlo control}
+
+As in the first run (Sutton and Barto, Section 5.4), with the same settings. With two states the
+table has $41^2 = 1681$ state cells instead of 41, each with 61 actions. A table can hold any
+feedback law up to its resolution, so it is not bound by the linear floor; its own floor, set by the
+bins and the action grid, has not been computed.
+
+\subsubsection{PPO with a linear-Gaussian policy}
+
+As in the first run, with the same settings: the policy is $\mathcal{N}(-Kx, \sigma^2)$ with
+$K \in \mathbb{R}^{1 \times 2}$, the value function is quadratic in $x$, and the gradients are written
+out by hand. It is the reference for the floor: its best possible gap is $0.00436$.
+
+\subsubsection{PPO with neural networks}
+
+The same algorithm with the policy mean and the value function given by neural networks, following
+the continuous-control setup of the PPO paper (Schulman et al.\ 2017, Section 6.1 and Table 3):
+\[
+  \pi_\theta(u \mid x) = \mathcal{N}\big(\mu_\theta(x),\ \sigma^2\big), \qquad V_\phi(x),
+\]
+with $\mu_\theta$ and $V_\phi$ two separate multilayer perceptrons and $\log \sigma$ a learned number
+that does not depend on the state. The mean can represent a nonlinear feedback law, so this policy is
+not bound by the linear floor. Gradients are computed by PyTorch. Each seed has its own networks and
+its own random numbers, so a seed's run does not depend on the batch (this is tested).
+
+\begin{table}[H]
+  \centering
+  \small
+  \begin{tabular}{@{}l p{6.2cm} l@{}}
+    \toprule
+    Setting & Value & Source \\
+    \midrule
+    hidden layers & 2 of 64 units, tanh & paper \\
+    policy output & mean of a Gaussian; $\sigma$ learned, state-independent & paper \\
+    shared parameters & none (separate policy and value networks) & paper \\
+    entropy weight $c_2$ & 0 & paper \\
+    steps per update $T$ & 2048 (one environment) & paper \\
+    epochs & 10 & paper \\
+    minibatch size & 64 (32 minibatches per epoch) & paper \\
+    Adam stepsize & $3 \times 10^{-4}$, constant & paper \\
+    discount $\gamma$, GAE $\lambda$ & 0.99, 0.95 & paper \\
+    clip $\varepsilon$ & 0.2, the best value of their search & paper \\
+    training length & $10^6$ steps & paper \\
+    \midrule
+    value weight $c_1$ & 0.5; the paper calls it ``irrelevant'' without sharing & ours \\
+    initial $\sigma$ & 0.5 & ours (not stated) \\
+    initialization & orthogonal; policy output layer scaled by 0.01 & ours (not stated) \\
+    gradient clipping & norm 0.5 per seed, policy and value separately & ours (not stated) \\
+    advantage normalization & per minibatch & ours (not stated) \\
+    observation and reward scaling & none & ours (not stated) \\
+    \bottomrule
+  \end{tabular}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} Neural PPO settings: what the paper states, and what it leaves open.}
+\end{table}
+
+The paper states that ``each of $N$ (parallel) actors collect $T$ timesteps'' but does not give $N$
+for this benchmark; one environment collecting $T = 2048$ steps is our reading. The output layer of
+the policy is scaled down so that the untrained policy applies controls close to zero; the system is
+stable without control, so no run diverges at the start.
+
+%----------------------------------------------------------------------------------------------------
+\subsection{Results}
+\label{sec:results}
+
+\begin{table}[H]
+  \centering
+  \small
+  \begin{tabular}{@{}lrrr@{}}
+    \toprule
+    At the final checkpoint & Monte Carlo control & PPO, linear & PPO, neural \\
+    \midrule
+    mean gap $\pm$ SE & $0.459 \pm 0.021$ & $0.00554 \pm 0.00021$ & $0.161 \pm 0.013$ \\
+    95\% Hoeffding band & $[0.169, 0.750]$ & $[0.000, 0.296]$ & $[0.000, 0.451]$ \\
+    median (IQR) & $0.455$ $(0.389\text{--}0.528)$ & $0.00510$ $(0.00470\text{--}0.00593)$ & $0.156$ $(0.109\text{--}0.213)$ \\
+    min, max over seeds & $0.145$, $0.714$ & $0.00436$, $0.0099$ & $0.0123$, $0.383$ \\
+    floor estimate (last 10\%) & $0.446$ & $0.00558$ & $0.157$ \\
+    seeds below the bound $0.00436$ & 0 & 0 & 0 \\
+    unstable fraction & $0$ & $0$ & $0$ \\
+    gain, mean & $(0.102, -0.057)$ & $(0.407, -0.310)$ & $(0.109, -0.128)$ \\
+    \quad sd across seeds & $(0.267, 0.073)$ & $(0.030, 0.023)$ & $(0.092, 0.058)$ \\
+    median $|x|$ after evaluation & $0.039$ & --- & $0.0050$ \\
+    final step & $10^6$ & $10^6$ & $999\,424$ \\
+    wall time & 63 s & 19 s & 541 s \\
+    \bottomrule
+  \end{tabular}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} Headline numbers at the final checkpoint, $M = 40$ seeds each. Gains of Monte Carlo and
+    neural PPO are effective gains; wall times are for all seeds on parallel processes. For reference: no control
+    has gap $0.416$, the LQR gain of the linearization $0.0308$, the best linear gain $0.00436$ at
+    $K = (0.372, -0.329)$.}
+  \label{tab:results}
+\end{table}
+
+\paragraph{Over training.} Mean gap and the number of seeds below the bound at selected checkpoints:
+\begin{center}
+  \begin{tabular}{@{}lrrrrr@{}}
+    \toprule
+    Steps & $\approx 5 \times 10^4$ & $10^5$ & $2.5 \times 10^5$ & $5 \times 10^5$ & $10^6$ \\
+    \midrule
+    Monte Carlo control & $0.945$ & $0.681$ & $0.550$ & $0.505$ & $0.459$ \\
+    PPO, linear & $0.0173$ & $0.0093$ & $0.0123$ & $0.0077$ & $0.0055$ \\
+    PPO, neural & $0.0072$ & $0.0372$ & $0.0705$ & $0.0849$ & $0.161$ \\
+    \quad seeds below $0.00436$ & 19 of 40 & 0 & 0 & 0 & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+Neural PPO's checkpoints fall on multiples of 2048 steps ($49\,152$, $98\,304$, $249\,856$,
+$499\,712$ and $999\,424$ in this table); linear PPO and Monte Carlo are at round numbers. No
+linear-PPO seed is below the bound at any checkpoint.
+
+\paragraph{Orderings.} On a common step grid (step-hold for neural PPO). \emph{Band separation}: every
+run of the first algorithm is below every run of the second; \emph{confident}: their Hoeffding bands
+are disjoint.
+\begin{center}
+  \begin{tabular}{@{}lccc@{}}
+    \toprule
+    At the final step & linear $\le$ MC & neural $\le$ MC & linear $\le$ neural \\
+    \midrule
+    band separation & yes, from $5 \times 10^4$ & no & yes, from $8.99 \times 10^5$ \\
+    expected curves & yes, from 0 & yes, from 0 & yes, from $9.8 \times 10^4$ \\
+    confident & no & no & no \\
+    floors & yes & yes & yes \\
+    \bottomrule
+  \end{tabular}
+\end{center}
+No ordering is confident: two Hoeffding bands of half-width $0.290$ are disjoint only when the means
+differ by more than $0.58$, and the largest difference here, Monte Carlo against linear PPO, is
+$0.45$.
+
+%----------------------------------------------------------------------------------------------------
+\subsection{Figures}
+\label{sec:figures}
+
+Every gap axis is logarithmic. The dashed line at $10^{-8}$ is the optimum (gaps at or below it are
+drawn on it), and the dash-dotted line at $0.00436$ is the best linear policy, the bound of this
+experiment.
+
+\subsubsection{All algorithms}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{learning_curves.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Learning curves.} Mean gap over the 40 seeds of each algorithm, with the shaded
+    95\% Hoeffding band (half-width 0.29). Linear PPO approaches the bound from above and stays
+    above it. Neural PPO's mean comes closest at the first checkpoint, $0.0072$, with 19 of its 40
+    seeds below the bound, and then rises steadily to about 0.16. Monte Carlo control stays between 0.46 and 0.95 after its first checkpoint. The bands of
+    both PPO variants reach the floor of the axis because the band is wider than their mean.}
+  \label{fig:curves}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{final_gap_ecdf.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Distribution of the final gap across seeds.} The height at gap $x$ is the
+    fraction of seeds with final gap at most $x$. Every linear-PPO seed lies just to the right of the
+    bound, between $0.00436$ and $0.0099$. The neural-PPO seeds spread from $0.012$ to $0.38$ and the
+    Monte Carlo seeds from $0.14$ to $0.71$; at the final checkpoint no seed of any algorithm is
+    below the bound.}
+  \label{fig:ecdf}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{unstable_fraction.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Fraction of unstable runs}, judged from the evaluation rollout. Neither PPO
+    variant has an unstable run at any checkpoint. Monte Carlo control has 72.5\% at
+    $5 \times 10^4$ steps and 10\% at $10^5$, one seed at $3 \times 10^5$, and none otherwise after
+    that.}
+  \label{fig:unstable}
+\end{figure}
+
+\subsubsection{PPO with a linear policy}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ppo_linear_runs.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Individual linear-PPO runs.} At $5 \times 10^4$ steps every seed is below gap
+    0.026, and below 0.035 at every later checkpoint; the runs then approach the bound at $0.00436$
+    from above (the dash-dotted line is not drawn on this chart), and the lowest seed at the end sits
+    on it.}
+  \label{fig:lin-runs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ppo_linear_gains.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Linear-PPO gains.} Mean learned gain $\pm$ one standard deviation across seeds.
+    The dashed lines are the LQR gain of the linearization, $(0.549, -0.385)$, which is not optimal
+    here; the gains settle near $(0.41, -0.31)$, close to the best linear gain $(0.372, -0.329)$,
+    not near the linearization's.}
+  \label{fig:lin-gains}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ppo_linear_running_means.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Linear PPO: running mean over seeds.} The final gaps averaged over the first
+    $1, \dots, 40$ seeds in 20 random orders; the paths settle at $0.0055$ within a few seeds, far
+    inside the Hoeffding envelope.}
+  \label{fig:lin-running}
+\end{figure}
+
+\subsubsection{PPO with neural networks}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ppo_runs.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Individual neural-PPO runs.} At the first checkpoint the seeds spread from
+    $2.9 \times 10^{-4}$ to $0.027$, 19 of them below the bound. Afterwards the runs rise; the best
+    gap of any seed at any later checkpoint is $0.0019$, at about $5.5 \times 10^5$ steps, and the
+    mean climbs to 0.16.}
+  \label{fig:nn-runs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ppo_gains.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Neural PPO: effective gains.} The discounted least-squares fit $u \approx -Kx$ of
+    the network's mean action along its evaluation rollout. After the first checkpoint, at about
+    $(0.33, -0.29)$, both components shrink steadily towards zero, to $(0.11, -0.13)$ at the end: the
+    policy grows weaker with training, and a weaker controller brings the state to zero more slowly
+    and pays more along the way.}
+  \label{fig:nn-gains}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ppo_residual_state.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Neural PPO: residual state.} Median over seeds of $|x|$ at the end of the
+    5000-step evaluation. It stays between $0.0024$ and $0.022$ and is $0.005$ at the end: the
+    network's output is not exactly zero at the origin, but this small offset is not what drives the
+    rising gap (Section~\ref{sec:observations}).}
+  \label{fig:nn-residual}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{ppo_running_means.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Neural PPO: running mean over seeds.} As in Figure~\ref{fig:lin-running}; the
+    paths settle at $0.16$.}
+  \label{fig:nn-running}
+\end{figure}
+
+\subsubsection{Monte Carlo control}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{monte_carlo_runs.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Individual Monte Carlo control runs.} The runs jump from checkpoint to checkpoint
+    as the greedy action of table cells changes; the best seed at the end is at 0.14.}
+  \label{fig:mc-runs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{monte_carlo_gains.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Monte Carlo control: effective gains.} The mean effective gain ends near
+    $(0.10, -0.06)$, much weaker than any of the reference gains, with a large spread across seeds
+    in the first component ($\pm 0.27$).}
+  \label{fig:mc-gains}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{monte_carlo_residual_state.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Monte Carlo control: residual state.} Median $|x|$ at the end of the evaluation:
+    0.55 at $5 \times 10^4$ steps, 0.039 at the end. As in the first run, the table does not bring
+    the state to zero.}
+  \label{fig:mc-residual}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{monte_carlo_running_means.png}
+  \caption{\textbf{Historical single NLQR benchmark ($k=2$).} \textbf{Monte Carlo control: running mean over seeds.} The paths settle at $0.46$.}
+  \label{fig:mc-running}
+\end{figure}
+
+%----------------------------------------------------------------------------------------------------
+\subsection{Observations}
+\label{sec:observations}
+
+\paragraph{The bound holds for the linear policy, as it must.} Linear PPO's gains settle near the
+best linear gain, not near the LQR gain of the linearization, and its gap approaches $0.00436$ from
+above. This is the behaviour the bound predicts: the algorithm finds roughly the best its policy
+class allows, and the remaining gap is the price of being linear.
+
+\paragraph{The neural policy can go below the bound.} At about $4.9 \times 10^4$ steps, 19 of 40
+neural-PPO seeds are below $0.00436$, the best at $2.9 \times 10^{-4}$, fifteen times below. A policy
+that is not linear can do what no gain can, and PPO finds such a policy quickly.
+
+\paragraph{But it does not keep it.} From the second checkpoint on, the neural policy gets worse
+with every stage of training: its effective gain shrinks towards zero, its gap rises to $0.16$, and
+its exploration noise $\sigma$ falls from $0.5$ to $0.08$ at the first checkpoint and to $0.0008$ at
+the end. The residual state is small ($0.005$), so the rise is not an offset at the origin but a
+controller that acts too weakly.
+
+\paragraph{A hypothesis, not tested.} With one environment collecting $T = 2048$ steps from
+$x_0$, almost every sample is taken at the origin. Under the optimal policy the state is below $0.01$
+after 10 steps, so about 10 of the 2048 samples, $0.5\%$, come from the part of the trajectory where
+the action matters. A minibatch of 64 then holds on average $0.3$ such samples. Most gradient steps
+see only states near zero, where the reward hardly depends on the action, and the per-minibatch
+normalization of the advantages scales that noise up to unit size. Linear PPO collects 8 rollouts of
+250 steps per update, about 80 informative samples, 20 per minibatch of 500. This would explain
+why the neural policy is best right after its first updates and drifts afterwards; it has not been
+tested, for example by rerunning neural PPO with several shorter rollouts per update.
+
+\paragraph{Monte Carlo control fails here as on LQR.} Its final mean gap, $0.46$, is worse than no
+control ($0.416$). With two states the table has 1681 cells, and 70\% of them were visited at least
+once in $10^6$ steps; the stall at a residual state seen in the first run appears again.
+
+%----------------------------------------------------------------------------------------------------
+\subsection{Limitations of this run}
+
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Forty seeds.} The Hoeffding bands are $\pm 0.29$ wide, so no ordering is confident.
+  \item \textbf{One nonlinearity.} Only $k = 2$ and $x_0 = (1, -1)$ were run; the bound and the
+    behaviour of the algorithms change with $k$.
+  \item \textbf{Our reading of the paper.} The neural-PPO settings the paper states are followed;
+    those it leaves open (Table in Section~\ref{sec:algorithms}), including the number of
+    environments, are ours, and the decline may depend on them.
+  \item \textbf{Neural PPO's decline is unexplained.} The hypothesis above is consistent with the
+    numbers but untested.
+  \item \textbf{The linear and neural PPO differ in more than the policy.} They use different
+    rollout lengths, numbers of environments and minibatch sizes, so the comparison between them
+    is not of the policy class alone.
+  \item \textbf{Monte Carlo's own floor}, set by its bins and action grid, has not been computed.
+  \item \textbf{Scoring from one start.} Every policy is scored from $x_0 = (1, -1)$ only.
+\end{itemize}
+
+%----------------------------------------------------------------------------------------------------
+\subsection{Reproducing}
+
+From the repository root:
+\begin{verbatim}
+uv run main.py baseline --problem nlqr --problem-set k=2
+uv run main.py crude --algos monte_carlo ppo_linear ppo \
+    --problem nlqr --problem-set k=2
+\end{verbatim}
+The run reported here is \texttt{results/crude\_20261118-001303\_nlqr/}, with master seed 0, 40 seeds
+per algorithm and several worker processes; a seed's result does not depend on the number of
+workers.
+The figures in \texttt{figures/} are copied from that run's \texttt{report/} directory.
+
+\clearpage
+\phantomsection
+\addcontentsline{toc}{section}{References}
+\begin{thebibliography}{9}
+\bibitem{ibrahim2026}
+S. Ibrahim, G. Ouerdane, H. Salloum, H. Ouerdane, S. Streif, and P. Osinenko.
+\emph{Benchmarking Reinforcement Learning via Stochastic Converse Optimality:
+Generating Systems with Known Optimal Policies}. arXiv:2603.17631v1, 2026.
+\href{https://arxiv.org/abs/2603.17631}{arxiv.org/abs/2603.17631}.
+Local source: \texttt{papers/nlqr-theory.pdf}.
+\end{thebibliography}
+
+\end{document}

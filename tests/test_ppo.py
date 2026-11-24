@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from algos import ppo
+from algos import ppo_linear as ppo
 from utils import baseline, seeds
 
 

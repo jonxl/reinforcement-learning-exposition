@@ -23,3 +23,6 @@ __pycache__/
 
 # Experiment outputs (raw arrays are regenerated from configs and seeds)
 results/
+
+.codex
+.claude

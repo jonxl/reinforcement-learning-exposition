@@ -10,7 +10,7 @@ from utils import baseline, envs, seeds
 
 def test_env_step_follows_dynamics_and_reward():
     prob = baseline.scalar_lqr(0.99)
-    env = envs.LinearQuadraticEnv(prob, n_envs=3)
+    env = envs.Env(prob, n_envs=3)
     x = env.reset()
     u = np.array([[0.5], [-0.2], [0.0]])
     x_next, r = env.step(u)
@@ -21,7 +21,7 @@ def test_env_step_follows_dynamics_and_reward():
 @pytest.mark.parametrize("make", [lambda: baseline.scalar_lqr(0.99), lambda: baseline.scalar_lqi(0.99).augmented])
 def test_evaluating_optimal_gain_gives_J_star(make):
     prob = make()
-    env = envs.LinearQuadraticEnv(prob, n_envs=2)
+    env = envs.Env(prob, n_envs=2)
     K = prob.K_star
     ev = env.evaluate(lambda x: -x @ K.T)
     assert ev["J"] == pytest.approx([prob.J_star] * 2, rel=1e-9)
@@ -30,7 +30,7 @@ def test_evaluating_optimal_gain_gives_J_star(make):
 
 def test_evaluate_flags_divergence():
     prob = baseline.scalar_lqr(0.99)
-    env = envs.LinearQuadraticEnv(prob, n_envs=1)
+    env = envs.Env(prob, n_envs=1)
     ev = env.evaluate(lambda x: 2.0 * x)  # x_{t+1} = 3 x_t
     assert ev["diverged"].all() and np.isinf(ev["J"]).all()
 

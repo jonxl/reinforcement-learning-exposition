@@ -14,7 +14,7 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 import numpy as np
-from algos import ppo
+from algos import ppo_lq_legacy as ppo
 from algos.tdmpc2_lq import Learner, Config
 from algos.lq_planner import plan
 from utils.baseline import scalar_lqr
@@ -105,6 +105,8 @@ def run_td(seeds,steps,folder,cfg,n_checkpoints=20):
     learner=Learner(seeds,cfg);replay=Replay(len(seeds),steps,cfg.horizon)
     alive=np.ones(len(seeds),bool);failures=[];history=[];updates=0
     x=np.ones(len(seeds));clock=time.perf_counter();eval_seconds=0.
+    from utils.rewards import RewardWindow
+    reward_window = RewardWindow(len(seeds))
     checkpoints=set(np.linspace(0,steps,n_checkpoints+1,dtype=int))
     rngs=[r[2] for r in learner.rng]
     def score(step):
@@ -116,6 +118,8 @@ def run_td(seeds,steps,folder,cfg,n_checkpoints=20):
                        gap_lower=np.where(alive,np.maximum(0,1-jstar/jl),1.),
                        gap_upper=np.where(alive,np.maximum(0,1-jstar/ju),1.),
                        elapsed=time.perf_counter()-clock,eval_seconds=eval_seconds)
+        reward, count = reward_window.flush()
+        metrics.update(training_stage_reward=reward, training_reward_count=count)
         history.append(metrics)
         np.savez_compressed(folder/f'checkpoint_{step:07d}.npz',p=learner.p,target=learner.target,
                             m=learner.m,v=learner.v,scale=learner.scale,alive=alive,
@@ -143,6 +147,7 @@ def run_td(seeds,steps,folder,cfg,n_checkpoints=20):
         else:
             u=plan(learner,x,training=True,reset=(step-1)%500==0)
         cost=x*x+u*u;xp=x+u;replay.add(x,u,cost,xp);x=xp
+        reward_window.add((-cost)[None, :], failed=~alive)
         if step%500==0:x=np.ones(len(seeds))
         if step==2500:
             for _ in range(int(np.ceil(2500/cfg.update_every))):update()
@@ -219,7 +224,7 @@ def main():
     cfg=Config()
     if args.structure_only:
         cfg=Config(candidates=512,elites=64,prior_candidates=24,iterations=6,batch=256,update_every=1)
-    sources=['algos/tdmpc2_lq.py','algos/lq_planner.py','algos/ppo.py','experiments/lq_comparison.py']
+    sources=['algos/tdmpc2_lq.py','algos/lq_planner.py','algos/ppo_lq_legacy.py','experiments/lq_comparison.py']
     manifest=dict(arguments=vars(args),seeds=seeds,td_config=asdict(cfg),
                   action_bound=BOUND,gamma=GAMMA,eval_seeds=EVAL_SEEDS,tail_tolerance=TAIL_TOL,
                   python=platform.python_version(),numpy=np.__version__,platform=platform.platform(),
