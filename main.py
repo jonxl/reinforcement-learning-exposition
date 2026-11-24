@@ -3,6 +3,7 @@
     uv run main.py baseline --problem lqr --gamma 0.99     exact optimum the agents are scored against
     uv run main.py baseline --problem lqi --gamma 0.99
     uv run main.py baseline --problem nlqr --problem-set k=2
+    uv run main.py suite --count 10 --seeds 3 --steps 32768 --workers 1  # exact NLQR + PPO pilot
     uv run main.py budget --eps 0.05 --delta 0.05 --checkpoints 20    seeds needed for a confidence band
 
     uv run main.py crude --algos monte_carlo --problem lqr      small run + every metric and figure
@@ -17,6 +18,7 @@ their parameters, e.g. the nonlinearity k of ``nlqr``. Algorithms are registered
 from __future__ import annotations
 
 import argparse
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -35,14 +37,14 @@ def cmd_baseline(args: argparse.Namespace) -> None:
         print(f"  J* = p                 = {prob.J_star:.6f}")
         print(f"  finite-cost interval   = ({lo:.6f}, {hi:.6f})")
         print(f"  curvature c_gamma      = {baseline.scalar_curvature(args.gamma):.6f}   (g ~ c e^2 near K*)")
-    elif args.problem in ("nlqr", "nlqr_scalar"):
+    elif args.problem in ("nlqr", "nlqr_scalar", "nlqr_energy"):
         prob = envs.make_problem(args.problem, args.gamma, **_parse_overrides(args.problem_set))
         gaps, unstable = envs.score_gains(prob, np.stack([prob.K_star, np.zeros_like(prob.K_star)]))
         print(f"Nonlinear benchmark {args.problem}  (k = {prob.k}, x0 = {prob.x0.tolist()}, gamma = {args.gamma})")
         print(f"  A (linearization)      = {np.round(prob.linear.A, 6).tolist()}")
         print(f"  B (linearization)      = {prob.linear.B.reshape(-1).tolist()},  open-loop spectral radius "
               f"{max(abs(np.linalg.eigvals(prob.linear.A))):.4f}")
-        print(f"  P (exact, every k)     = {(np.round(prob.P, 6) + 0.0).tolist()}")
+        print(f"  P (exact value)        = {(np.round(prob.P, 6) + 0.0).tolist()}")
         print(f"  J* = x0' P x0          = {prob.J_star:.6f}")
         print(f"  K* of the linearization= {np.round(prob.K_star.reshape(-1), 6).tolist()}")
         print(f"  gap of u = -K* x       = {gaps[0]:.6f}   (unstable: {bool(unstable[0])})")
@@ -95,7 +97,8 @@ def _report(run_dirs: list[Path], out: Path, delta: float) -> None:
     for d in run_dirs:
         arrays, meta = rollouts.load(d)
         runs.append((rollouts.to_curves(arrays, meta), arrays, meta))
-    problems = {(meta["problem"], meta["gamma"], tuple(sorted(meta.get("problem_params", {}).items()))) for _, _, meta in runs}
+    problems = {(meta["problem"], meta["gamma"], json.dumps(meta.get("problem_params", {}), sort_keys=True))
+                for _, _, meta in runs}
     if len(problems) != 1:
         raise SystemExit(f"report needs runs on one problem with the same parameters, got {sorted(problems)}")
     floor, _ = envs.best_linear_gap(rollouts.problem_of(runs[0][2]))
@@ -111,6 +114,10 @@ def cmd_run(args: argparse.Namespace) -> None:
 
 
 def cmd_report(args: argparse.Namespace) -> None:
+    if len(args.runs) == 1 and (Path(args.runs[0]) / 'problems.json').exists():
+        from utils.benchmark_report import suite_report
+        print(f'Benchmark report: {suite_report(args.runs[0], args.out)}/index.html')
+        return
     out = Path(args.out) if args.out else rollouts.RESULTS_DIR / f"report_{datetime.now():%Y%m%d-%H%M%S}"
     _report([Path(d) for d in args.runs], out, args.delta)
 
@@ -127,6 +134,13 @@ def cmd_crude(args: argparse.Namespace) -> None:
                          overrides, out_dir=root / algo, problem_params=_parse_overrides(args.problem_set))
         run_dirs.append(d)
     _report(run_dirs, root / "report", args.delta)
+
+
+def cmd_suite(args):
+    from utils.suite import run_suite
+    out = args.out or rollouts.RESULTS_DIR / f"suite_{datetime.now():%Y%m%d-%H%M%S}"
+    run_suite(out, args.count, args.seeds, args.steps, args.workers,
+              args.generator_seed, args.master_seed, args.gamma, args.algos, args.profile, args.checkpoints)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -148,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     def add_run_args(p, multi: bool):
         if multi:
-            p.add_argument("--algos", nargs="+", default=["monte_carlo"], choices=sorted(rollouts.ALGOS))
+            p.add_argument("--algos", nargs="+", default=list(rollouts.DEFAULT_BENCHMARK_ALGOS), choices=sorted(rollouts.ALGOS))
         else:
             p.add_argument("--algo", required=True, choices=sorted(rollouts.ALGOS))
         p.add_argument("--problem", choices=list(rollouts.PROBLEMS), default="lqr")
@@ -165,7 +179,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", default="")
     p.set_defaults(func=cmd_run)
 
-    p = sub.add_parser("report", help="figures and metrics from saved runs on one problem")
+    p = sub.add_parser("report", help="rebuild reports from a saved suite or runs on one fixed problem")
     p.add_argument("runs", nargs="+", help="run directories under results/")
     p.add_argument("--out", default=None)
     p.add_argument("--delta", type=float, default=0.05)
@@ -176,6 +190,21 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--seeds", type=int, default=40)
     p.add_argument("--delta", type=float, default=0.05)
     p.set_defaults(func=cmd_crude)
+    p = sub.add_parser("suite", help="generate exact NLQR problems and benchmark neural PPO and Monte Carlo")
+    p.add_argument("--algos", nargs="+", choices=sorted(rollouts.ALGOS),
+                   default=list(rollouts.DEFAULT_BENCHMARK_ALGOS),
+                   help="default: ppo monte_carlo; add ppo_linear for the restricted-policy baseline")
+    p.add_argument("--count", type=int, default=10)
+    p.add_argument("--profile", choices=["moderate", "aggressive"], default="moderate")
+    p.add_argument("--checkpoints", type=int, default=4)
+    p.add_argument("--seeds", type=int, default=2)
+    p.add_argument("--steps", type=int, default=4096, help="steps per seed, positive multiple of 512; pilot budget")
+    p.add_argument("--workers", type=int, default=1)
+    p.add_argument("--generator-seed", type=int, default=0)
+    p.add_argument("--master-seed", type=int, default=0)
+    p.add_argument("--gamma", type=float, default=.99)
+    p.add_argument("--out", default=None, help="new output directory (refuses overwrite)")
+    p.set_defaults(func=cmd_suite)
     return parser
 
 

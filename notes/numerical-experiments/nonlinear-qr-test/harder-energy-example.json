@@ -1,0 +1,18 @@
+{
+  "problem": "nlqr_energy",
+  "gamma": 0.99,
+  "problem_params": {
+    "beta": 0.15,
+    "p": 1.0,
+    "r": 0.5
+  },
+  "open_loop_spectral_radius": 1.3079450309085399,
+  "J_star": 3.5,
+  "optimal_rollout_cost": 3.5000000000000004,
+  "validation": {
+    "energy_max_abs": 1.0658141036401503e-14,
+    "bellman_max_abs": 1.4210854715202004e-14,
+    "action_gap_max_abs": 1.2156942119645464e-14
+  },
+  "status": "Analytic construction and optimal rollout validated; no PPO training on this candidate"
+}

@@ -1,0 +1,748 @@
+{
+  "manifest": {
+    "generator_seed": 0,
+    "master_seed": 0,
+    "gamma": 0.99,
+    "count": 10,
+    "seeds": 3,
+    "steps_per_seed": 32768,
+    "workers": 1,
+    "purpose": "Pilot learning curves; no convergence or confidence claim",
+    "Sigma": [
+      [
+        0,
+        0
+      ],
+      [
+        0,
+        0
+      ]
+    ],
+    "cases": [
+      {
+        "id": "lqr",
+        "problem": "lqr",
+        "problem_params": {},
+        "P": [
+          [
+            1.6152512456630117
+          ]
+        ],
+        "J_star": 1.6152512456630117,
+        "K_linearization": [
+          [
+            0.6152512456630116
+          ]
+        ],
+        "optimal_rollout_cost": 1.6152512456630113,
+        "optimal_rollout_error": 4.440892098500626e-16
+      },
+      {
+        "id": "nlqr_00",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.4554425309821815,
+          "p2": 1.2697867137638703,
+          "beta": 0.6561460285904293,
+          "r": 0.8099165813171175,
+          "p": 0.5939810717600817,
+          "k": 1.4302044618221774,
+          "theta_base": 0.5639814654603079,
+          "alpha": 1.2835972487871987,
+          "kappa": 1.8154374871981342,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.4554425309821815,
+            0.0
+          ],
+          [
+            0.0,
+            1.2697867137638703
+          ]
+        ],
+        "J_star": 3.7252292447460515,
+        "K_linearization": [
+          [
+            0.3246602870352593,
+            0.3691155589565612
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 5.329070518200751e-15,
+          "bellman_max_abs": 3.552713678800501e-15,
+          "action_gap_max_abs": 6.217248937900877e-15
+        },
+        "open_loop_P_contraction_bound": 0.5375269073490213,
+        "optimal_rollout_cost": 3.725229244746051,
+        "optimal_rollout_error": 4.440892098500626e-16
+      },
+      {
+        "id": "nlqr_01",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.902608635681652,
+          "p2": 1.8158535541215322,
+          "beta": 0.6504107750255222,
+          "r": 1.3144425659525414,
+          "p": 0.3600756725916393,
+          "k": 1.2837243571439552,
+          "theta_base": 0.3053933723615354,
+          "alpha": 1.3905431378799094,
+          "kappa": 1.8121918303736375,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.902608635681652,
+            0.0
+          ],
+          [
+            0.0,
+            1.8158535541215322
+          ]
+        ],
+        "J_star": 4.718462189803184,
+        "K_linearization": [
+          [
+            0.10252354058570047,
+            0.25722128184875914
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 7.105427357601002e-15,
+          "bellman_max_abs": 7.105427357601002e-15,
+          "action_gap_max_abs": 8.215650382226158e-15
+        },
+        "open_loop_P_contraction_bound": 0.4157363549559329,
+        "optimal_rollout_cost": 4.718462189803186,
+        "optimal_rollout_error": 1.7763568394002505e-15
+      },
+      {
+        "id": "nlqr_02",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 1.9495678358060773,
+          "p2": 1.4226872211976584,
+          "beta": 0.6542479506718195,
+          "r": 0.8745699658997383,
+          "p": 0.5511873244080892,
+          "k": 1.2177516092594,
+          "theta_base": 0.5692310668887524,
+          "alpha": 1.0069420434095067,
+          "kappa": 2.4958149036838164,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            1.9495678358060773,
+            0.0
+          ],
+          [
+            0.0,
+            1.4226872211976584
+          ]
+        ],
+        "J_star": 3.372255057003736,
+        "K_linearization": [
+          [
+            0.2712177568443585,
+            0.3620780877840362
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 4.440892098500626e-15,
+          "bellman_max_abs": 3.552713678800501e-15,
+          "action_gap_max_abs": 7.105427357601002e-15
+        },
+        "open_loop_P_contraction_bound": 0.5201193173138204,
+        "optimal_rollout_cost": 3.3722550570037364,
+        "optimal_rollout_error": 4.440892098500626e-16
+      },
+      {
+        "id": "nlqr_03",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.971253008164345,
+          "p2": 1.6855419844806947,
+          "beta": 0.7475688914401725,
+          "r": 1.213068038342564,
+          "p": 0.46667642719373115,
+          "k": 0.8080772040179289,
+          "theta_base": 0.6328930041164491,
+          "alpha": 1.1202834579805807,
+          "kappa": 1.4653628133384335,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.971253008164345,
+            0.0
+          ],
+          [
+            0.0,
+            1.6855419844806947
+          ]
+        ],
+        "J_star": 4.65679499264504,
+        "K_linearization": [
+          [
+            0.22330418077756134,
+            0.22927891030261544
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 4.440892098500626e-15,
+          "bellman_max_abs": 7.105427357601002e-15,
+          "action_gap_max_abs": 5.915407053080912e-15
+        },
+        "open_loop_P_contraction_bound": 0.3313695998750077,
+        "optimal_rollout_cost": 4.6567949926450405,
+        "optimal_rollout_error": 8.881784197001252e-16
+      },
+      {
+        "id": "nlqr_04",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.2287530382476834,
+          "p2": 1.8894878343490003,
+          "beta": 0.7901065273934376,
+          "r": 1.0146771180254421,
+          "p": 0.5214589492189283,
+          "k": 0.9574955128607536,
+          "theta_base": 0.5565800181198182,
+          "alpha": 0.9703289804057066,
+          "kappa": 1.587428500792242,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.2287530382476834,
+            0.0
+          ],
+          [
+            0.0,
+            1.8894878343490003
+          ]
+        ],
+        "J_star": 4.118240872596684,
+        "K_linearization": [
+          [
+            0.20727565717521282,
+            0.30673444306954994
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 2.6645352591003757e-15,
+          "bellman_max_abs": 3.552713678800501e-15,
+          "action_gap_max_abs": 6.323067069935462e-15
+        },
+        "open_loop_P_contraction_bound": 0.31829455594141165,
+        "optimal_rollout_cost": 4.11824087259668,
+        "optimal_rollout_error": 3.552713678800501e-15
+      },
+      {
+        "id": "nlqr_05",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.8354115280071888,
+          "p2": 1.2271575935333798,
+          "beta": 0.7434780717029064,
+          "r": 0.8504092061494309,
+          "p": 0.5997932442960193,
+          "k": 1.3296786459909467,
+          "theta_base": 0.34362166579577136,
+          "alpha": 1.401187384648563,
+          "kappa": 1.0878520522077915,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.8354115280071888,
+            0.0
+          ],
+          [
+            0.0,
+            1.2271575935333798
+          ]
+        ],
+        "J_star": 4.062569121540569,
+        "K_linearization": [
+          [
+            0.18153387152088638,
+            0.33376351375259083
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 4.440892098500626e-15,
+          "bellman_max_abs": 7.105427357601002e-15,
+          "action_gap_max_abs": 7.105427357601002e-15
+        },
+        "open_loop_P_contraction_bound": 0.39228110314018855,
+        "optimal_rollout_cost": 4.062569121540569,
+        "optimal_rollout_error": 0.0
+      },
+      {
+        "id": "nlqr_06",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.0041755908184906,
+          "p2": 1.150279466894839,
+          "beta": 0.717550904997393,
+          "r": 1.2777945621723765,
+          "p": 0.4191926626981242,
+          "k": 0.7416170408515277,
+          "theta_base": 0.442731103892917,
+          "alpha": 0.8588104356074042,
+          "kappa": 1.1361295684286827,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.0041755908184906,
+            0.0
+          ],
+          [
+            0.0,
+            1.150279466894839
+          ]
+        ],
+        "J_star": 3.1544550577133297,
+        "K_linearization": [
+          [
+            0.10492424240388448,
+            0.1676564356991833
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 3.552713678800501e-15,
+          "bellman_max_abs": 7.105427357601002e-15,
+          "action_gap_max_abs": 5.717648576819556e-15
+        },
+        "open_loop_P_contraction_bound": 0.3299817766414328,
+        "optimal_rollout_cost": 3.1544550577133292,
+        "optimal_rollout_error": 4.440892098500626e-16
+      },
+      {
+        "id": "nlqr_07",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.3704985789802757,
+          "p2": 1.2986961328189226,
+          "beta": 0.750799231693454,
+          "r": 0.919709266380928,
+          "p": 0.6326339331519494,
+          "k": 0.9920881345958628,
+          "theta_base": 0.26329716774213774,
+          "alpha": 1.2032865212317674,
+          "kappa": 2.390731829601801,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.3704985789802757,
+            0.0
+          ],
+          [
+            0.0,
+            1.2986961328189226
+          ]
+        ],
+        "J_star": 3.6691947117991983,
+        "K_linearization": [
+          [
+            0.12493734405682769,
+            0.3430666909029979
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 2.6645352591003757e-15,
+          "bellman_max_abs": 3.552713678800501e-15,
+          "action_gap_max_abs": 7.993605777301127e-15
+        },
+        "open_loop_P_contraction_bound": 0.39255318440836373,
+        "optimal_rollout_cost": 3.6691947117991988,
+        "optimal_rollout_error": 4.440892098500626e-16
+      },
+      {
+        "id": "nlqr_08",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.160565732073676,
+          "p2": 1.9545904936907372,
+          "beta": 0.724984372053147,
+          "r": 1.0551371749094454,
+          "p": 0.5360640356046134,
+          "k": 1.4960772041882593,
+          "theta_base": 0.7693662049626593,
+          "alpha": 1.068036111447277,
+          "kappa": 2.136593267962437,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.160565732073676,
+            0.0
+          ],
+          [
+            0.0,
+            1.9545904936907372
+          ]
+        ],
+        "J_star": 4.115156225764413,
+        "K_linearization": [
+          [
+            0.30669372848424686,
+            0.30121501263278727
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 3.552713678800501e-15,
+          "bellman_max_abs": 3.552713678800501e-15,
+          "action_gap_max_abs": 6.217248937900877e-15
+        },
+        "open_loop_P_contraction_bound": 0.42419238293261563,
+        "optimal_rollout_cost": 4.115156225764413,
+        "optimal_rollout_error": 0.0
+      },
+      {
+        "id": "nlqr_09",
+        "problem": "nlqr_energy",
+        "problem_params": {
+          "p1": 2.2461340432314287,
+          "p2": 1.5293121601967705,
+          "beta": 0.7678678551070711,
+          "r": 1.0487935096134025,
+          "p": 0.5703450715366188,
+          "k": 1.2689143023917997,
+          "theta_base": 0.7592358119680271,
+          "alpha": 0.7919461066247241,
+          "kappa": 2.093522675614464,
+          "x0": [
+            1.0,
+            -1.0
+          ]
+        },
+        "P": [
+          [
+            2.2461340432314287,
+            0.0
+          ],
+          [
+            0.0,
+            1.5293121601967705
+          ]
+        ],
+        "J_star": 3.7754462034281993,
+        "K_linearization": [
+          [
+            0.2743603464727056,
+            0.23855377015553136
+          ]
+        ],
+        "validation": {
+          "energy_max_abs": 2.6645352591003757e-15,
+          "bellman_max_abs": 7.105427357601002e-15,
+          "action_gap_max_abs": 5.329070518200751e-15
+        },
+        "open_loop_P_contraction_bound": 0.344584393520072,
+        "optimal_rollout_cost": 3.775446203428199,
+        "optimal_rollout_error": 4.440892098500626e-16
+      }
+    ]
+  },
+  "summary": [
+    {
+      "problem": "lqr",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.9838474875433697,
+      "final_mean_gap": 0.11489999836035292,
+      "final_min_gap": 0.1093778853532813,
+      "final_max_gap": 0.12020643330828928,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.23093879599946376,
+      "run": "results/nlqr_energy_pilot/lqr/ppo_linear"
+    },
+    {
+      "problem": "lqr",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.982899773525712,
+      "final_mean_gap": 0.026688109181565205,
+      "final_min_gap": 0.009961578233703361,
+      "final_max_gap": 0.0431583565923217,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.101634861999628,
+      "run": "results/nlqr_energy_pilot/lqr/ppo"
+    },
+    {
+      "problem": "nlqr_00",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.07383269582831364,
+      "final_mean_gap": 0.0263046625514487,
+      "final_min_gap": 0.023614523522331954,
+      "final_max_gap": 0.02821248187118497,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9953912689998106,
+      "run": "results/nlqr_energy_pilot/nlqr_00/ppo_linear"
+    },
+    {
+      "problem": "nlqr_00",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.07388615064890336,
+      "final_mean_gap": 0.014985160749914886,
+      "final_min_gap": 0.011336477481287077,
+      "final_max_gap": 0.019320429069386802,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.6327018720003252,
+      "run": "results/nlqr_energy_pilot/nlqr_00/ppo"
+    },
+    {
+      "problem": "nlqr_01",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.03242415242453878,
+      "final_mean_gap": 0.01782313356624062,
+      "final_min_gap": 0.013892227581479122,
+      "final_max_gap": 0.020767206741823085,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 1.001979422999284,
+      "run": "results/nlqr_energy_pilot/nlqr_01/ppo_linear"
+    },
+    {
+      "problem": "nlqr_01",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.0324825663299072,
+      "final_mean_gap": 0.009048093376747538,
+      "final_min_gap": 0.00728786073382337,
+      "final_max_gap": 0.010420354933495468,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.653384854998876,
+      "run": "results/nlqr_energy_pilot/nlqr_01/ppo"
+    },
+    {
+      "problem": "nlqr_02",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.07757014722225608,
+      "final_mean_gap": 0.025379810912540306,
+      "final_min_gap": 0.020825269572071536,
+      "final_max_gap": 0.02852843306510222,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9820897160007007,
+      "run": "results/nlqr_energy_pilot/nlqr_02/ppo_linear"
+    },
+    {
+      "problem": "nlqr_02",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.07748707225714253,
+      "final_mean_gap": 0.01903103220605673,
+      "final_min_gap": 0.014045212501778814,
+      "final_max_gap": 0.02704846308814768,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.608249558001262,
+      "run": "results/nlqr_energy_pilot/nlqr_02/ppo"
+    },
+    {
+      "problem": "nlqr_03",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.03639564844214627,
+      "final_mean_gap": 0.02316431305182609,
+      "final_min_gap": 0.019239822207942292,
+      "final_max_gap": 0.025440347998638035,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 1.0627157100007025,
+      "run": "results/nlqr_energy_pilot/nlqr_03/ppo_linear"
+    },
+    {
+      "problem": "nlqr_03",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.03627451645799969,
+      "final_mean_gap": 0.02074829709930004,
+      "final_min_gap": 0.017421283491507733,
+      "final_max_gap": 0.02543962816785139,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.6335012660001667,
+      "run": "results/nlqr_energy_pilot/nlqr_03/ppo"
+    },
+    {
+      "problem": "nlqr_04",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.039703977295980075,
+      "final_mean_gap": 0.01743758020617318,
+      "final_min_gap": 0.013710132369324723,
+      "final_max_gap": 0.019603220822905665,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9820042579995061,
+      "run": "results/nlqr_energy_pilot/nlqr_04/ppo_linear"
+    },
+    {
+      "problem": "nlqr_04",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.03957086487225806,
+      "final_mean_gap": 0.015549050464744604,
+      "final_min_gap": 0.011668011683510171,
+      "final_max_gap": 0.021516400830286164,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.606053129000429,
+      "run": "results/nlqr_energy_pilot/nlqr_04/ppo"
+    },
+    {
+      "problem": "nlqr_05",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.045849946660112106,
+      "final_mean_gap": 0.012934017884499141,
+      "final_min_gap": 0.010423160160207723,
+      "final_max_gap": 0.014444359145992292,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9781566949986882,
+      "run": "results/nlqr_energy_pilot/nlqr_05/ppo_linear"
+    },
+    {
+      "problem": "nlqr_05",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.04587424691701155,
+      "final_mean_gap": 0.0077759647658481494,
+      "final_min_gap": 0.0041659178887003545,
+      "final_max_gap": 0.010552421650005361,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.5934479930001544,
+      "run": "results/nlqr_energy_pilot/nlqr_05/ppo"
+    },
+    {
+      "problem": "nlqr_06",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.02095488202059881,
+      "final_mean_gap": 0.013037335640739242,
+      "final_min_gap": 0.009023582988487266,
+      "final_max_gap": 0.01564617666830681,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9863288879987522,
+      "run": "results/nlqr_energy_pilot/nlqr_06/ppo_linear"
+    },
+    {
+      "problem": "nlqr_06",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.020824138441355517,
+      "final_mean_gap": 0.014955083580219575,
+      "final_min_gap": 0.011900352299500705,
+      "final_max_gap": 0.01699909549429146,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.587287849999484,
+      "run": "results/nlqr_energy_pilot/nlqr_06/ppo"
+    },
+    {
+      "problem": "nlqr_07",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.0907053030641155,
+      "final_mean_gap": 0.025291649319687082,
+      "final_min_gap": 0.020100797452480612,
+      "final_max_gap": 0.028180617325955115,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9824026919995958,
+      "run": "results/nlqr_energy_pilot/nlqr_07/ppo_linear"
+    },
+    {
+      "problem": "nlqr_07",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.0907122777048192,
+      "final_mean_gap": 0.013501575088145054,
+      "final_min_gap": 0.007662706017932952,
+      "final_max_gap": 0.021224177186617954,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.588395691000187,
+      "run": "results/nlqr_energy_pilot/nlqr_07/ppo"
+    },
+    {
+      "problem": "nlqr_08",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.017054039802133825,
+      "final_mean_gap": 0.00969787057434964,
+      "final_min_gap": 0.008831191362158597,
+      "final_max_gap": 0.010465632619279241,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9750805789990409,
+      "run": "results/nlqr_energy_pilot/nlqr_08/ppo_linear"
+    },
+    {
+      "problem": "nlqr_08",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.01702386069814747,
+      "final_mean_gap": 0.01236128449355404,
+      "final_min_gap": 0.010476617428851864,
+      "final_max_gap": 0.015440512257878458,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.608356229999117,
+      "run": "results/nlqr_energy_pilot/nlqr_08/ppo"
+    },
+    {
+      "problem": "nlqr_09",
+      "algorithm": "ppo_linear",
+      "initial_mean_gap": 0.007850484418652992,
+      "final_mean_gap": 0.0040707108236924805,
+      "final_min_gap": 0.0032734349441982946,
+      "final_max_gap": 0.004940719689516815,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 0.9794054159992811,
+      "run": "results/nlqr_energy_pilot/nlqr_09/ppo_linear"
+    },
+    {
+      "problem": "nlqr_09",
+      "algorithm": "ppo",
+      "initial_mean_gap": 0.00781526804678434,
+      "final_mean_gap": 0.011569477485673793,
+      "final_min_gap": 0.01016729959103424,
+      "final_max_gap": 0.01346748372890616,
+      "final_unstable_fraction": 0.0,
+      "training_diverged_fraction": 0.0,
+      "wall_seconds": 2.598409429001549,
+      "run": "results/nlqr_energy_pilot/nlqr_09/ppo"
+    }
+  ]
+}

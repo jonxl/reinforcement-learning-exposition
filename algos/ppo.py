@@ -3,12 +3,13 @@
 Policy and value function are multilayer perceptrons (``utils.networks``), one independent pair per seed:
 
 * policy  pi_theta(u | x) = N(mu_theta(x), diag(sigma^2)), with mu_theta a tanh MLP and a
-  state-independent log sigma. The mean can represent a nonlinear feedback law, so on a nonlinear
-  problem the gap is not held up by the policy class (compare ``algos.ppo_linear``, whose policy is a
-  gain and stops at the floor of the best linear controller).
+  state-independent log sigma. The mean can approximate nonlinear feedback laws;
+  finite network capacity and optimization can still limit its performance.
 * value   V_phi(x), a second tanh MLP with its own weights.
 
-The algorithm is otherwise the one of ``algos.ppo_linear``: rollouts of ``horizon`` steps in
+This is the primary PPO benchmark. Both implementations use PPO-Clip, but differ in
+actor and critic parameterizations, gradient implementation, clipping, and defaults.
+Their comparison does not isolate actor architecture. Both collect rollouts of ``horizon`` steps in
 ``n_envs`` environments, generalized advantage estimation with the problem's discount gamma
 (bootstrapped with V at the truncation step, since the episode end is a time limit, not a terminal
 state), then ``epochs`` passes of minibatch gradient steps on
@@ -36,6 +37,7 @@ import torch
 from algos.advantages import gae
 from utils import envs, networks
 from utils.seeds import rng_for
+from utils.rewards import RewardWindow
 
 NAME = "ppo"
 LOG_2PI = float(np.log(2.0 * np.pi))
@@ -111,9 +113,13 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
 
     n_iters = max(1, cfg.total_steps // N)
     checkpoint_iters = np.unique(np.linspace(0, n_iters, cfg.n_checkpoints + 1).astype(int))
-    out = {k: [] for k in ("steps", "gaps", "gains", "sigma", "unstable", "final_abs_state", "diverged")}
+    rewards = RewardWindow(M)
+    out = {k: [] for k in ("training_stage_reward", "training_reward_count", "steps", "gaps", "gains", "sigma", "unstable", "final_abs_state", "diverged")}
 
     def score(it: int) -> None:
+        reward, count = rewards.flush()
+        out["training_stage_reward"].append(reward)
+        out["training_reward_count"].append(count)
         s = envs.score_policy(problem, mean_action, M, cfg.eval_horizon)
         out["steps"].append(it * N)
         out["gaps"].append(np.where(alive, s["gaps"], 1.0))
@@ -146,6 +152,7 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
 
         bad = ~np.isfinite(X).all(axis=(0, 2, 3)) | (np.abs(X).max(axis=(0, 2, 3)) > envs.BLOWUP)
         alive &= ~bad
+        rewards.add(Rw, failed=~alive)
         if not alive.any():
             if it in checkpoint_iters:
                 score(it)
@@ -180,6 +187,11 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
             score(it)
 
     result = {k: np.stack(v, axis=1) if k != "steps" else np.asarray(v) for k, v in out.items()}
+    result["reward_metric"] = {
+        "name": "training_stage_reward", "definition": "mean observed reward per transition since previous checkpoint",
+        "includes_exploration": True, "step_zero": "NaN: no training transitions yet",
+        "nonfinite_window": "-inf; failed seeds are not dropped", "higher_is_better": True,
+    }
     result["config"] = asdict(cfg)
     result["iterations"] = n_iters
     return result

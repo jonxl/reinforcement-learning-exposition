@@ -1,9 +1,9 @@
 """Proximal Policy Optimization with a linear-Gaussian policy (notes, Appendix "PPO").
 
-The reference variant: ``algos.ppo`` is the same algorithm with neural networks and is the one to use
-on nonlinear problems. This one is kept because on a linear-quadratic problem its policy class
-contains the optimum and the cost of its policy is exact, and because on a nonlinear problem it
-shows the floor that any linear policy is stuck at.
+Optional restricted-policy baseline; ``algos.ppo`` is the primary neural PPO benchmark.
+On LQR, this actor's mean contains the optimal controller and can be scored exactly.
+On NLQR it measures the performance achieved by this linear-policy training setup;
+its observed gap does not establish the best achievable linear-policy cost.
 
 Policy and value function, chosen so that the optimum of a linear-quadratic problem is representable:
 
@@ -14,8 +14,10 @@ Policy and value function, chosen so that the optimum of a linear-quadratic prob
   a linear-quadratic system is exactly of this form.
 
 The algorithm runs unchanged on any problem of ``utils.envs`` (it only sees observations and
-rewards). On a nonlinear problem the two families above are approximations: the optimal policy is
-not a linear gain, so the gap has a floor above zero, and the critic is no longer exact.
+rewards). On a nonlinear problem the optimal controller need not be linear, and the
+current policy's value need not be quadratic, even when the optimal value is quadratic.
+A positive approximation floor is not guaranteed. A positive-variance Gaussian is
+not the deterministic LQR optimum; evaluation scores its mean controller.
 
 Everything else follows the appendix: rollouts of ``horizon`` steps in ``n_envs`` environments,
 temporal-difference errors and generalized advantage estimation with the problem's discount gamma
@@ -44,6 +46,7 @@ import numpy as np
 from algos.advantages import gae
 from utils import envs
 from utils.seeds import rng_for
+from utils.rewards import RewardWindow
 
 NAME = "ppo_linear"
 LOG_2PI = np.log(2.0 * np.pi)
@@ -183,9 +186,13 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
 
     n_iters = max(1, cfg.total_steps // N)
     checkpoint_iters = np.unique(np.linspace(0, n_iters, cfg.n_checkpoints + 1).astype(int))
-    out = {k: [] for k in ("steps", "gaps", "gains", "sigma", "unstable", "diverged")}
+    rewards = RewardWindow(M)
+    out = {k: [] for k in ("training_stage_reward", "training_reward_count", "steps", "gaps", "gains", "sigma", "unstable", "diverged")}
 
     def score(it: int) -> None:
+        reward, count = rewards.flush()
+        out["training_stage_reward"].append(reward)
+        out["training_reward_count"].append(count)
         gaps = np.ones(M)
         unstable = np.ones(M, dtype=bool)
         if alive.any():
@@ -216,6 +223,7 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
 
         bad = ~np.isfinite(X).all(axis=(0, 2, 3)) | (np.abs(X).max(axis=(0, 2, 3)) > envs.BLOWUP)
         alive &= ~bad
+        rewards.add(Rw, failed=~alive)
         if not alive.any():
             if it in checkpoint_iters:
                 score(it)
@@ -244,6 +252,11 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
             score(it)
 
     result = {k: np.stack(v, axis=1) if k != "steps" else np.asarray(v) for k, v in out.items()}
+    result["reward_metric"] = {
+        "name": "training_stage_reward", "definition": "mean observed reward per transition since previous checkpoint",
+        "includes_exploration": True, "step_zero": "NaN: no training transitions yet",
+        "nonfinite_window": "-inf; failed seeds are not dropped", "higher_is_better": True,
+    }
     result["config"] = asdict(cfg)
     result["iterations"] = n_iters
     return result

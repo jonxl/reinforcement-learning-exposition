@@ -26,6 +26,7 @@ from typing import Protocol
 import numpy as np
 
 from utils import baseline, control
+from utils.nlqr import EnergyNLQRProblem
 
 EVAL_HORIZON = 5000  # gamma^5000 ~ 1e-22 at gamma = 0.99: truncation is negligible
 BLOWUP = 1e12  # a state this large counts as divergence: cost +inf, gap 1
@@ -56,6 +57,7 @@ def _lqi(gamma: float = 0.99, **params) -> baseline.LQRProblem:
 
 
 PROBLEMS: dict[str, Callable[..., Problem]] = {
+    "nlqr_energy": EnergyNLQRProblem,  # inverse Bellman construction with a rotation field
     "lqr": baseline.scalar_lqr,  # scalar regulation, the running example of the notes
     "lqi": _lqi,  # scalar tracking with integral action
     "nlqr": baseline.nlqr,  # two-state nonlinear benchmark; params: k (nonlinearity), x0, ...

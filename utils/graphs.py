@@ -326,6 +326,36 @@ def plot_seed_metric(steps, values, name, title, ylabel, ax=None, logy=False):
     return ax
 
 
+def plot_training_rewards(runs, ax=None):
+    """Mean observed stage reward over each checkpoint interval, including exploration."""
+    ax = _ax(ax)
+    from utils.plot_scales import adaptive_y
+    failures = []
+    plotted = []
+    for _, arrays, meta in runs:
+        if "training_stage_reward" not in arrays:
+            continue  # Older runs did not record rewards; do not fabricate them from gaps.
+        values = arrays["training_stage_reward"]
+        counts = arrays["training_reward_count"]
+        mask = np.all(counts > 0, axis=0)
+        means = values[:, mask].mean(axis=0)
+        plotted.append(means)
+        bad = ~np.isfinite(means)
+        if bad.any():
+            failures.append(f"{label(meta['algo'])}: {int(bad.sum())} nonfinite windows")
+        ax.plot(arrays["steps"][mask], np.where(bad, np.nan, means), marker="o", ms=3,
+                color=color(meta["algo"]), label=label(meta["algo"]))
+    if failures:
+        ax.text(.02, .03, "\n".join(failures), transform=ax.transAxes, fontsize=7)
+    ax.set_title("Training stage reward (higher / less negative is better)")
+    ax.set_xlabel("Environment steps per seed (end of averaging window)")
+    scale = adaptive_y(ax, np.concatenate(plotted)) if plotted else "linear"
+    ax.set_ylabel(f"Mean reward per transition ({scale})")
+    ax.grid(axis="y", alpha=.2)
+    ax.legend(fontsize=8)
+    return ax
+
+
 # -- the full report ------------------------------------------------------------------------------
 
 
@@ -346,7 +376,14 @@ def make_report(runs: list[tuple[lc.LearningCurves, dict, dict]], out: Path, del
     apply_style()
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
+    from utils.benchmark_report import problem_report
+    problem_report(runs, out / 'benchmark')
     curves = [c for c, _, _ in runs]
+    if any("training_stage_reward" in arrays for _, arrays, _ in runs):
+        fig, ax = plt.subplots(figsize=(7.2, 4.2))
+        plot_training_rewards(runs, ax)
+        _save(fig, out, "training_stage_reward")
+
 
     fig, ax = plt.subplots(figsize=(6.4, 5.0))  # taller: its legend sits below the axes
     plot_learning_curves(curves, ax, delta, linear_floor)

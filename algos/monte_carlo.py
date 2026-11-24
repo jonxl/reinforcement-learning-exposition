@@ -23,6 +23,7 @@ import numpy as np
 
 from utils import envs
 from utils.seeds import rng_for
+from utils.rewards import RewardWindow
 
 NAME = "monte_carlo"
 
@@ -101,9 +102,13 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
 
     n_episodes = max(1, cfg.total_steps // T)
     checkpoint_eps = np.unique(np.linspace(0, n_episodes, cfg.n_checkpoints + 1).astype(int))
-    out = {k: [] for k in ("steps", "gaps", "gains", "unstable", "visited_frac", "final_abs_state", "diverged")}
+    rewards = RewardWindow(M)
+    out = {k: [] for k in ("training_stage_reward", "training_reward_count", "steps", "gaps", "gains", "unstable", "visited_frac", "final_abs_state", "diverged")}
 
     def score(episode: int) -> None:
+        reward, count = rewards.flush()
+        out["training_stage_reward"].append(reward)
+        out["training_reward_count"].append(count)
         def greedy_policy(obs):
             return table.actions[table.greedy(table.index(obs), tie_pref)][:, None]
 
@@ -132,6 +137,8 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
             obs, r = env.step(table.actions[a][:, None])
             s_buf[t], a_buf[t], r_buf[t] = s, a, r
 
+        rewards.add(r_buf)
+
         # returns G_t = r_t + gamma G_{t+1}, then first-visit sample averages
         G = np.empty((T, M))
         acc = np.zeros(M)
@@ -153,6 +160,11 @@ def train(problem: envs.Problem, seeds: np.ndarray, cfg: Config) -> dict:
             score(episode)
 
     result = {k: np.stack(v, axis=1) if k != "steps" else np.asarray(v) for k, v in out.items()}
+    result["reward_metric"] = {
+        "name": "training_stage_reward", "definition": "mean observed reward per transition since previous checkpoint",
+        "includes_exploration": True, "step_zero": "NaN: no training transitions yet",
+        "nonfinite_window": "-inf; failed seeds are not dropped", "higher_is_better": True,
+    }
     result["config"] = asdict(cfg)
     result["n_cells"] = table.n_cells
     result["n_actions"] = nA

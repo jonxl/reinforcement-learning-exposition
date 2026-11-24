@@ -35,6 +35,7 @@ from utils.learning_curves import LearningCurves
 RESULTS_DIR = Path("results")
 
 ALGOS = {"monte_carlo": "algos.monte_carlo", "ppo": "algos.ppo", "ppo_linear": "algos.ppo_linear"}
+DEFAULT_BENCHMARK_ALGOS = ("ppo", "monte_carlo")
 PROBLEMS = tuple(envs.PROBLEMS)
 
 
