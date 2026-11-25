@@ -1,51 +1,79 @@
 # reinforcement-learning-exposition
-A new repo on a wild card idea for RL agents. 
 
-## Algorithm variants
+Compare reinforcement-learning algorithms on control problems with known optimal
+costs. Run independent training seeds, measure how far each policy is from optimal,
+and generate graphs and draft numerical-experiment reports.
 
-Use `ppo-nn` for a neural Gaussian actor and neural value critic, or `ppo-lg`
-for a linear-Gaussian actor and quadratic-feature critic. `td-mpc2-nn` uses
-neural encoder, dynamics, cost prediction, actor prior, and distributional
-critics. `td-mpc2-lg` is the bounded scalar adaptation with structured models.
-The family classes share the experiment interface; their architectures and
-optimizer settings remain explicit in saved configurations.
+The project includes tabular Monte Carlo control, neural and linear-Gaussian PPO,
+and neural and structured TD-MPC2 variants. Experiments cover linear-quadratic
+regulation (LQR) and constructed nonlinear problems with exact optimal references.
 
-Generate fixed NLQR problems and train both neural variants on each problem:
+## Quick start
 
-```sh
-uv run main.py suite --algos ppo-nn td-mpc2-nn monte_carlo --count 10 --seeds 8 --steps 10240 --out results/neural_nlqr
-uv run main.py report results/neural_nlqr
-```
-
-`report` only rebuilds saved results. The neural TD implementation is a CPU
-benchmark variant, with problem-specific discount and no artificial action
-bounds on unbounded NLQR problems; it is not an exact upstream reproduction.
-Old algorithm spellings remain accepted for existing scripts and saved runs.
-
-## CPU and CUDA execution
-
-Training commands (`run`, `crude`, `suite`, `matched-lq`) accept mutually exclusive
-`--cpu` and `--gpu` flags. CPU is the default. `--gpu` discovers visible CUDA
-GPUs and falls back to CPU with a message when CUDA is unavailable. Structured
-LG variants and Monte Carlo continue to use their CPU backends.
+From the repository root, with Python 3.12+ and [uv](https://docs.astral.sh/uv/):
 
 ```sh
-uv run main.py run --algo ppo-nn --problem nlqr_energy --seeds 1000 --gpu --seed-batch-size 16
-uv run main.py suite --algos ppo-nn td-mpc2-nn ppo-lg monte_carlo --count 10 --seeds 100 --gpu --seed-batch-size 16 --out results/cuda_suite
-uv run main.py run --algo ppo-lg --seeds 100 --cpu --workers 4 --seed-batch-size 8
+uv sync --extra lq
+
+# One Monte Carlo training seed on scalar LQR, with figures.
+uv run main.py crude --algos monte_carlo --problem lqr \
+  --seeds 1 --workers 1 \
+  --set total_steps=10000 n_checkpoints=10
 ```
 
-Each detected GPU gets one spawned worker. Workers take seed batches from a
-shared coordinator as they finish; total seeds and batch size are independent.
-PPO batches independent actor/critic parameters over seeds. Neural TD-MPC2 runs
-seeds sequentially within a job, with its neural networks and candidate
-computations on the selected GPU. CPU environment simulation, NumPy random
-streams, replay storage and planner sampling still involve host/device transfers.
-Float64 precision is unchanged. GPU speedups are not assumed; benchmark on the
-target hardware. CUDA requires a CUDA-enabled PyTorch installation and a working
-NVIDIA driver. Saved metadata records requested and actual execution devices.
+The command prints its output directory under `results/crude_<timestamp>_lqr/`.
+Open `report/monte_carlo_runs.png` for the learning curve and `report/summary.md`
+for the results. This small example demonstrates the workflow; use multiple seeds
+and longer training to study performance.
 
-`--workers` controls CPU execution; CUDA uses one worker per device with work.
-Batch size is explicit (CUDA default 16), without automatic memory tuning or
-out-of-memory retries. The runner currently saves after the entire algorithm run
-completes; incremental persistence and resume are still needed for long jobs.
+## Run the full comparison
+
+Run all five variants on the same bounded scalar LQR problem:
+
+```sh
+uv run --extra lq main.py matched-lq \
+  --algos monte_carlo ppo-nn ppo-lg td-mpc2-nn td-mpc2-lg \
+  --seeds 40 --steps 1000000 --checkpoints 20 \
+  --workers 4 --master-seed 0 \
+  --out results/all_algorithms
+```
+
+This is a substantial experiment: 200 million training interactions, plus
+evaluation. For a smaller trial, use `--seeds 3 --steps 10000 --checkpoints 5`.
+Choose a fresh output directory for each experiment.
+
+Open `results/all_algorithms/benchmark_report/index.html` to browse the results.
+To rebuild the report and compile its LaTeX draft:
+
+```sh
+uv run main.py report results/all_algorithms
+bash scripts/build-latex.sh results/all_algorithms/benchmark_report/benchmark.tex
+```
+
+Compilation requires `latexmk` and a LaTeX installation; the PDF appears beside
+`benchmark.tex`. See [running experiments](docs/usage.md) for the nonlinear suite
+and [creating reports](docs/reports.md) for the complete reporting workflow.
+
+## What the graphs show
+
+Lower gap means closer to optimal. Each faint line is one training seed; the thick
+line is the mean across seeds. The dotted lines show the smallest and largest gaps.
+
+![Monte Carlo learning curves: individual seeds and their mean](notes/numerical-experiments/first-ppo-lqr-baseline/figures/monte_carlo_runs.png)
+
+Monte Carlo control: in this initial experiment, the mean remains far from optimal.
+
+![Linear-Gaussian PPO learning curves: individual seeds and their mean](notes/numerical-experiments/first-ppo-lqr-baseline/figures/ppo_runs.png)
+
+Linear-Gaussian PPO: individual runs vary, while the mean reaches a much smaller gap.
+
+These are historical illustrations from the [first LQR experiment](notes/numerical-experiments/first-ppo-lqr-baseline/first-ppo-lqr-baseline-test.pdf):
+40 seeds per algorithm, one million training steps per seed, discount 0.99, and
+unbounded scalar LQR. The PPO figure uses the original linear-Gaussian implementation.
+They are separate from the bounded five-algorithm experiment above.
+
+## Guides
+
+- [Running experiments](docs/usage.md): algorithms, problems, seeds, budgets, CPU/GPU, and saved data.
+- [Reading the graphs](docs/reading-the-graphs.md): single runs, averages, uncertainty, and limiting arguments.
+- [Creating reports](docs/reports.md): figures, HTML, LaTeX drafts, and historical experiments.
