@@ -6,7 +6,8 @@ and generate graphs and draft numerical-experiment reports.
 
 The project includes tabular Monte Carlo control, neural and linear-Gaussian PPO,
 and neural and structured TD-MPC2 variants. Experiments cover linear-quadratic
-regulation (LQR) and constructed nonlinear problems with exact optimal references.
+regulation (LQR) and nonlinear quadratic regulation (NLQR): nonlinear dynamics
+with quadratic costs, constructed so the optimal value and policy are known.
 
 ## Quick start
 
@@ -26,7 +27,7 @@ Open `report/monte_carlo_runs.png` for the learning curve and `report/summary.md
 for the results. This small example demonstrates the workflow; use multiple seeds
 and longer training to study performance.
 
-## Run the full comparison
+## Compare all algorithms on bounded LQR
 
 Run all five variants on the same bounded scalar LQR problem:
 
@@ -53,6 +54,30 @@ bash scripts/build-latex.sh results/all_algorithms/benchmark_report/benchmark.te
 Compilation requires `latexmk` and a LaTeX installation; the PDF appears beside
 `benchmark.tex`. See [running experiments](docs/usage.md) for the nonlinear suite
 and [creating reports](docs/reports.md) for the complete reporting workflow.
+
+## Run the nonlinear benchmark
+
+The NLQR suite tests learning beyond linear dynamics while retaining an exact
+optimal reference. This command runs ten generated nonlinear problems plus one
+scalar LQR reference, reporting each problem separately:
+
+```sh
+uv run main.py suite \
+  --algos monte_carlo ppo-nn ppo-lg td-mpc2-nn \
+  --count 10 --seeds 40 --steps 102400 --checkpoints 20 \
+  --workers 4 --generator-seed 0 --master-seed 0 \
+  --out results/nonlinear_suite
+```
+
+All four listed variants support this suite; structured `td-mpc2-lg` supports
+only bounded scalar LQR. For a small trial, use
+`--count 1 --seeds 2 --steps 4096 --checkpoints 4` and a fresh output directory.
+The full command uses about 180 million training interactions, plus evaluation.
+
+Open `results/nonlinear_suite/benchmark_report/index.html` for the results.
+The same directory contains `benchmark.tex`, ready to compile with the build
+command above. See the [experiment guide](docs/usage.md#generated-nonlinear-suite)
+for problem generation and seed controls.
 
 ## What the graphs show
 
