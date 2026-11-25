@@ -1,9 +1,9 @@
 """Figures for learning curves, with one consistent look across every run and every algorithm.
 
 Conventions (fixed here so they never drift between figures):
-* every gap axis is logarithmic, with one fixed range and floor (``GAP_FLOOR``, ``_gap_axis``): the
-  gap lives in [0, 1] and the differences that matter are near zero, where a linear axis shows
-  nothing. No figure sets its own gap scale;
+* gap comparisons use a fixed logarithmic range and floor (``GAP_FLOOR``, ``_gap_axis``);
+  Monte Carlo individual-run and seed-average charts use a linear [0, 1] scale
+  to make variation far from the optimum visible;
 * each algorithm owns one colour, assigned by name in a fixed order, never by rank;
 * the exact optimum (the gap floor, K*) is drawn in ink as a dashed reference, never in a series colour;
 * text is ink, never the series colour; gridlines are hairlines; one y-axis per chart;
@@ -168,6 +168,19 @@ def _gap_axis(ax, which: str = "y") -> None:
         ax.axvline(GAP_FLOOR, color=INK, ls="--", lw=1.0, label=note)
 
 
+def _individual_gap_axis(ax, curve) -> bool:
+    """Return whether this algorithm's individual view uses a linear gap axis."""
+    linear = curve.name == "monte_carlo"
+    if linear:
+        ax.set_yscale("linear")
+        ax.set_ylim(-0.03, 1.05)
+        ax.yaxis.set_major_locator(matplotlib.ticker.MultipleLocator(0.2))
+        ax.axhline(0, color=INK, ls="--", lw=1.0, label="optimum (gap 0)")
+    else:
+        _gap_axis(ax)
+    return linear
+
+
 # -- figures --------------------------------------------------------------------------------------
 
 
@@ -208,17 +221,18 @@ def plot_runs(curve, ax=None, max_runs=None):
     """Every seed's curve, faint, with the min/max envelope and the mean. ``max_runs=None`` draws all seeds."""
     ax = _ax(ax)
     col = color(curve.name)
+    values = np.asarray if curve.name == "monte_carlo" else _on_gap_axis
     for g in curve.gaps[:max_runs]:
-        ax.plot(curve.steps, _on_gap_axis(g), color=col, alpha=0.12, lw=0.7)
+        ax.plot(curve.steps, values(g), color=col, alpha=0.12, lw=0.7)
     lo, hi = curve.envelope()
-    ax.plot(curve.steps, _on_gap_axis(lo), color=INK_2, lw=0.9, ls=":")
-    ax.plot(curve.steps, _on_gap_axis(hi), color=INK_2, lw=0.9, ls=":")
-    ax.plot(curve.steps, _on_gap_axis(curve.mean()), color=col, lw=2.0)
-    _gap_axis(ax)
+    ax.plot(curve.steps, values(lo), color=INK_2, lw=0.9, ls=":")
+    ax.plot(curve.steps, values(hi), color=INK_2, lw=0.9, ls=":")
+    ax.plot(curve.steps, values(curve.mean()), color=col, lw=2.0)
+    linear = _individual_gap_axis(ax, curve)
     shown = curve.n_seeds if max_runs is None else min(max_runs, curve.n_seeds)
     _finish(ax, [curve], f"Individual runs: {label(curve.name)}",
             f"one faint line per seed ({shown} of {curve.n_seeds}); dotted: min and max over seeds; thick: mean; "
-            "dashed: optimum", ylabel="gap  (log scale)", legend=False)
+            "dashed: optimum", ylabel=f"gap  ({'linear' if linear else 'log'} scale)", legend=False)
     return ax
 
 
@@ -283,14 +297,15 @@ def plot_running_means(curve, ax=None, checkpoint=-1, delta=0.05, n_orderings=20
     col = color(curve.name)
     paths = curve.running_means(checkpoint, n_orderings)
     m = np.arange(1, curve.n_seeds + 1)
+    values = np.asarray if curve.name == "monte_carlo" else _on_gap_axis
     for p in paths:
-        ax.plot(m, _on_gap_axis(p), color=col, alpha=0.35, lw=0.8)
+        ax.plot(m, values(p), color=col, alpha=0.35, lw=0.8)
     center = curve.mean()[checkpoint]
     eps = np.array([concentration.hoeffding_eps(k, delta) for k in m])
-    ax.plot(m, _on_gap_axis(np.clip(center + eps, 0, 1)), color=INK_2, lw=0.9, ls=":")
-    ax.plot(m, _on_gap_axis(np.clip(center - eps, 0, 1)), color=INK_2, lw=0.9, ls=":")
-    ax.axhline(_on_gap_axis(center), color=INK_2, ls="-", lw=1.0)
-    _gap_axis(ax)
+    ax.plot(m, values(np.clip(center + eps, 0, 1)), color=INK_2, lw=0.9, ls=":")
+    ax.plot(m, values(np.clip(center - eps, 0, 1)), color=INK_2, lw=0.9, ls=":")
+    ax.axhline(values(center), color=INK_2, ls="-", lw=1.0)
+    linear = _individual_gap_axis(ax, curve)
     step = curve.steps[checkpoint]
     _finish(
         ax,
@@ -299,7 +314,7 @@ def plot_running_means(curve, ax=None, checkpoint=-1, delta=0.05, n_orderings=20
         f"at step {_steps_label(step)}, {paths.shape[0]} random seed orders; solid: all-seed mean; "
         "dotted: Hoeffding ±ε(M); dashed: optimum",
         xlabel="number of seeds M",
-        ylabel="running mean of the gap  (log scale)",
+        ylabel=f"running mean of the gap  ({'linear' if linear else 'log'} scale)",
         legend=False,
     )
     return ax

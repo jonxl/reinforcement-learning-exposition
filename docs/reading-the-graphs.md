@@ -42,9 +42,11 @@ Each seed has equal weight. This is the average of the individual gaps, rather
 than the gap computed from an average cost. A low mean can coexist with poor
 individual runs, so read the faint curves and the failure statistics too.
 
-Historical README plots use a logarithmic gap axis: each major tick represents a
-factor of ten. Their dashed optimum line is a plotting floor at `1e-8`, since
-zero cannot appear on a log axis. Current benchmark plots use their own labeled
+The README's Monte Carlo plot uses a linear 0–1 gap axis so differences between
+runs remain visible. Its dashed optimum line is at zero. The PPO plot uses a
+logarithmic axis: each major tick represents a factor of ten, and the dashed
+optimum line is a plotting floor at `1e-8`, since zero cannot appear on a log
+axis. Current benchmark plots use their own labeled
 scale and consistent training-axis limits within a problem; inspect the ticks
 before comparing visual distances.
 
